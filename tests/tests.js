@@ -547,6 +547,39 @@ test('Plantillas: crear, predeterminada y cambiar la de un proyecto', async ({ o
   check(p.rounds.every((r) => r.steps.every((s) => !s.doneAt)), 'El avance se reinicia');
 });
 
+test('Editor de plantillas: lista + detalle, pegar, reordenar y modo texto', async ({ open }) => {
+  const app = await open();
+  const { X } = app;
+  X.openTemplates();
+  const before = X.twCurrent().rounds.length;
+  app.$('[data-tpl="add-round"]').click();
+  eq(X.twCurrent().rounds.length, before + 1, 'Agregar ronda');
+  eq(X.twRound().short, String(before + 1).padStart(2, '0'), 'La ronda nueva se numera sola');
+  const dt = new app.w.DataTransfer();
+  dt.setData('text/plain', 'Uno\n- Dos\n\n• Tres');
+  app.$('#tplNewStep').dispatchEvent(new app.w.ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  eq(X.twRound().steps.join('|'), 'Uno|Dos|Tres', 'Pegar varias líneas crea un paso por línea');
+  const ins = app.$$('.si-in');
+  ins[2].dispatchEvent(new app.w.KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true }));
+  eq(X.twRound().steps.join('|'), 'Uno|Tres|Dos', 'Alt+↑ sube el paso');
+  const text = X.templateToText(X.twCurrent());
+  const back = X.textToRounds(text);
+  eq(JSON.stringify(back), JSON.stringify(X.twCurrent().rounds), 'Texto ida y vuelta conserva todo');
+  app.$('#tplMode').click();
+  app.$('#tplText').value = '# A · Primera\n- x\n- y\n\n# Segunda\nz';
+  app.$('#tplMode').click();
+  eq(X.twCurrent().rounds.map((r) => `${r.short}:${r.name}:${r.steps.length}`).join(' '), 'A:Primera:2 02:Segunda:1', 'El texto se convierte en rondas (la sin etiqueta se numera)');
+  app.$('#tplMode').click();
+  app.$('#tplText').value = 'sin rondas';
+  app.$('#tplText').value = '';
+  app.$('#tplSave').click();
+  check(app.$('#dlgTemplate').open, 'Con el texto vacío no guarda');
+  app.$('#tplText').value = '# Única\n- paso';
+  app.$('#tplSave').click();
+  check(!app.$('#dlgTemplate').open, 'Con texto válido guarda');
+  eq(X.state.settings.templates[0].rounds.length, 1, 'Se guardó la plantilla escrita');
+});
+
 test('Migración desde la primera versión (una sola plantilla)', async ({ open }) => {
   const start = Date.now() - 2 * H;
   const old = {

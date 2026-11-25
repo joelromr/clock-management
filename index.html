@@ -61,28 +61,29 @@
     <div class="debug-body" id="debugBody"></div>
   </footer>
 
-  <dialog id="dlgTemplate" class="dlg dlg-wide">
-    <form id="tplForm" method="dialog">
-      <h2>Plantillas</h2>
-      <p class="dlg-note">Editar una plantilla no cambia proyectos existentes. Los proyectos nuevos usan la predeterminada; en cada proyecto puedes cambiarla desde su encabezado.</p>
-      <div class="tpl-bar">
-        <select id="tplSelect" aria-label="Plantilla a editar"></select>
-        <button type="button" class="btn btn-small" id="tplNew">Nueva</button>
-        <button type="button" class="btn btn-small" id="tplDup">Duplicar</button>
-        <button type="button" class="btn btn-small btn-danger" id="tplDel">Eliminar</button>
-      </div>
-      <div class="tpl-meta">
-        <input id="tplName" aria-label="Nombre de la plantilla" placeholder="Nombre de la plantilla">
-        <label class="chk"><input type="checkbox" id="tplDefault"> Predeterminada</label>
-      </div>
-      <p class="dlg-note">Por ronda: etiqueta corta, nombre y un paso por línea.</p>
-      <div id="tplRounds"></div>
-      <div class="dlg-actions">
-        <button type="button" class="btn" id="tplAdd">+ Ronda</button>
+  <dialog id="dlgTemplate" class="dlg tpl-dlg" aria-labelledby="tplTitle">
+    <form id="tplForm" method="dialog" class="tpl-shell">
+      <header class="tpl-head">
+        <div class="tpl-bar">
+          <h2 id="tplTitle">Plantillas</h2>
+          <select id="tplSelect" aria-label="Plantilla a editar"></select>
+          <button type="button" class="btn btn-small" id="tplNew">Nueva</button>
+          <button type="button" class="btn btn-small" id="tplDup">Duplicar</button>
+          <button type="button" class="btn btn-small btn-danger" id="tplDel">Eliminar</button>
+        </div>
+        <div class="tpl-meta">
+          <input id="tplName" aria-label="Nombre de la plantilla" placeholder="Nombre de la plantilla">
+          <label class="chk"><input type="checkbox" id="tplDefault"> Predeterminada</label>
+        </div>
+      </header>
+      <div class="tpl-body" id="tplBody"></div>
+      <footer class="tpl-foot">
+        <button type="button" class="btn btn-small" id="tplMode">Editar como texto</button>
+        <span class="tpl-note">Los cambios no tocan proyectos existentes.</span>
         <span class="spacer"></span>
         <button type="button" class="btn" id="tplCancel">Cancelar</button>
         <button type="button" class="btn btn-solid" id="tplSave">Guardar</button>
-      </div>
+      </footer>
     </form>
   </dialog>
 

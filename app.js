@@ -1714,22 +1714,57 @@ $('#fileImport').addEventListener('change', async (e) => {
   } catch { sfx('error'); toast('Ese archivo no parece un respaldo válido.'); }
 });
 
-/* ---------- plantillas ---------- */
-let tw = null; // copia de trabajo: { templates, defaultId, editId }
+/* ---------- plantillas ----------
+   Editor en dos columnas: lista de rondas (izquierda) y la ronda elegida con sus pasos (derecha).
+   "Editar como texto" cambia a un solo texto: "# 01 · Nombre" por ronda y "- paso" por paso. */
+let tw = null; // copia de trabajo: { templates, defaultId, editId, ri, mode, text }
 const twCurrent = () => tw.templates.find((t) => t.id === tw.editId);
-function readRounds() {
-  return $$('.tpl-round').map((f) => ({
-    short: f.querySelector('[name=short]').value.trim() || '?',
-    name: f.querySelector('[name=name]').value.trim() || 'Ronda',
-    steps: f.querySelector('[name=steps]').value.split('\n').map((s) => s.trim()).filter(Boolean),
-  }));
+const twRound = () => twCurrent().rounds[tw.ri];
+const isAutoShort = (s) => /^\d+$/.test(s || '') || !(s || '').trim(); // números se renumeran solos
+// Las etiquetas numéricas siguen la posición (01, 02, …); las escritas a mano (A, B, TEST) se respetan.
+function renumber(t) {
+  t.rounds.forEach((r, i) => { if (isAutoShort(r.short)) r.short = pad(i + 1); });
 }
-function syncTplForm() {
+function syncName() {
+  const t = tw && twCurrent();
+  if (t) t.name = $('#tplName').value.trim() || 'Sin nombre';
+}
+const splitLines = (text) => text.split(/\r?\n/).map((s) => s.replace(/^\s*[-*•]\s*/, '').trim()).filter(Boolean);
+
+/* --- texto ↔ rondas --- */
+function templateToText(t) {
+  return t.rounds.map((r) => [`# ${r.short || ''} · ${r.name}`, ...r.steps.map((s) => `- ${s}`)].join('\n')).join('\n\n');
+}
+function textToRounds(text) {
+  const rounds = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith('#')) {
+      const body = line.replace(/^#+\s*/, '');
+      const m = body.match(/^(\S{1,4})\s*[·|:]\s*(.+)$/); // "01 · Nombre", "A: Nombre"
+      rounds.push(m ? { short: m[1], name: m[2].trim(), steps: [] } : { short: '', name: body || `Ronda ${rounds.length + 1}`, steps: [] });
+    } else {
+      if (!rounds.length) rounds.push({ short: '', name: 'Ronda 1', steps: [] });
+      const step = line.replace(/^[-*•]\s*/, '').trim();
+      if (step) rounds[rounds.length - 1].steps.push(step);
+    }
+  }
+  return rounds;
+}
+// Lleva lo escrito en modo texto a la plantilla. Devuelve false si no hay ninguna ronda.
+function applyText() {
+  if (tw.mode !== 'text') return true;
+  const rounds = textToRounds($('#tplText')?.value ?? tw.text ?? '');
+  if (!rounds.length) { sfx('error'); toast('Escribe al menos una ronda: una línea que empiece con #.'); return false; }
   const t = twCurrent();
-  if (!t) return;
-  t.name = $('#tplName').value.trim() || 'Sin nombre';
-  t.rounds = readRounds();
+  t.rounds = rounds;
+  renumber(t);
+  tw.ri = Math.min(tw.ri, rounds.length - 1);
+  return true;
 }
+
+/* --- render --- */
 function renderTplDialog() {
   const t = twCurrent();
   $('#tplSelect').innerHTML = tw.templates.map((x) =>
@@ -1738,47 +1773,186 @@ function renderTplDialog() {
   const d = $('#tplDefault');
   d.checked = t.id === tw.defaultId;
   d.disabled = d.checked;
-  $('#tplRounds').innerHTML = t.rounds.map((r, i) => `
-    <fieldset class="tpl-round" data-i="${i}">
-      <div class="tpl-row">
-        <input id="tplShort${i}" name="short" class="tpl-short" value="${esc(r.short)}" maxlength="4" aria-label="Etiqueta corta" placeholder="A">
-        <input id="tplRoundName${i}" name="name" class="tpl-name" value="${esc(r.name)}" aria-label="Nombre de la ronda" placeholder="Nombre de la ronda">
-        <button type="button" class="x" data-tpl-rm="${i}" title="Quitar ronda" aria-label="Quitar ronda">×</button>
-      </div>
-      <textarea id="tplSteps${i}" name="steps" rows="3" placeholder="Un paso por línea">${esc(r.steps.join('\n'))}</textarea>
-    </fieldset>`).join('');
+  $('#tplMode').textContent = tw.mode === 'text' ? 'Editar visual' : 'Editar como texto';
+  if (tw.mode === 'text') renderTplText();
+  else {
+    $('#tplBody').innerHTML = `
+      <div class="tpl-cols">
+        <aside class="tpl-list">
+          <div class="tpl-list-head"><span>Rondas · <b id="tplCount"></b></span>
+            <button type="button" class="tpl-act" data-tpl="number" title="Etiquetas 01, 02, 03…">Numerar</button></div>
+          <ol id="tplRoundList" class="tpl-rounds"></ol>
+          <button type="button" class="tpl-add" data-tpl="add-round">+ Agregar ronda</button>
+        </aside>
+        <section class="tpl-detail" id="tplDetail"></section>
+      </div>`;
+    renderTplList();
+    renderTplDetail();
+  }
 }
+function renderTplList() {
+  const t = twCurrent();
+  $('#tplCount').textContent = t.rounds.length;
+  $('#tplRoundList').innerHTML = t.rounds.map((r, i) => `
+    <li class="tpl-ri ${i === tw.ri ? 'sel' : ''}" data-ri="${i}" draggable="true" tabindex="0" title="Arrastra para reordenar (o Alt+↑/↓)">
+      <span class="grip" aria-hidden="true"></span>
+      <span class="ri-short">${esc(r.short || pad(i + 1))}</span>
+      <span class="ri-name">${esc(r.name || 'Sin nombre')}</span>
+      <span class="ri-count">${r.steps.length}</span>
+    </li>`).join('');
+}
+function renderTplDetail(focus) {
+  const r = twRound();
+  const i = tw.ri;
+  const last = twCurrent().rounds.length;
+  $('#tplDetail').innerHTML = `
+    <div class="tpl-detail-head">
+      <span class="tpl-pos">Ronda ${i + 1} de ${last}</span>
+      <div class="tpl-acts">
+        <button type="button" class="tpl-act" data-tpl="dup-round">Duplicar ronda</button>
+        <button type="button" class="tpl-act" data-tpl="copy-steps" title="Pone estos mismos pasos en todas las rondas">Copiar pasos a todas</button>
+        <button type="button" class="tpl-act danger" data-tpl="del-round">Eliminar ronda</button>
+      </div>
+    </div>
+    <div class="tpl-names">
+      <input id="tplShort" class="tpl-short-in" maxlength="4" value="${esc(r.short)}" placeholder="${pad(i + 1)}" aria-label="Etiqueta corta" title="Etiqueta corta (en número se renumera sola)">
+      <input id="tplRoundName" class="tpl-rname" value="${esc(r.name)}" placeholder="Nombre de la ronda" aria-label="Nombre de la ronda">
+    </div>
+    <ol class="tpl-steps" id="tplSteps">${r.steps.map((s, si) => `
+      <li class="tpl-step" data-si="${si}" draggable="true">
+        <span class="grip" aria-hidden="true"></span>
+        <span class="si-n">${si + 1}</span>
+        <input class="si-in" data-si="${si}" value="${esc(s)}" aria-label="Paso ${si + 1}">
+        <button type="button" class="x" data-tpl="del-step" data-si="${si}" title="Quitar paso" aria-label="Quitar paso ${si + 1}">×</button>
+      </li>`).join('')}
+    </ol>
+    <input id="tplNewStep" class="tpl-newstep" placeholder="Agregar paso · Enter para el siguiente · pega varias líneas de golpe" aria-label="Agregar paso">`;
+  if (focus === 'new') $('#tplNewStep').focus();
+  else if (Number.isInteger(focus)) { const el = $(`.si-in[data-si="${focus}"]`); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+  else if (focus === 'name') $('#tplRoundName').select();
+}
+function renderTplText() {
+  if (tw.text == null) tw.text = templateToText(twCurrent());
+  $('#tplBody').innerHTML = `
+    <div class="tpl-textmode">
+      <div class="tpl-textcol">
+        <textarea id="tplText" spellcheck="false" aria-label="Plantilla como texto">${esc(tw.text)}</textarea>
+        <p class="tpl-help"><code># 01 · Nombre</code> empieza una ronda · <code>- paso</code> agrega un paso · las líneas vacías no cuentan.</p>
+      </div>
+      <aside class="tpl-preview" id="tplPreview" aria-label="Vista previa"></aside>
+    </div>`;
+  renderTplPreview();
+}
+function renderTplPreview() {
+  const rounds = textToRounds($('#tplText').value);
+  $('#tplPreview').innerHTML = rounds.length
+    ? `<div class="tpl-list-head"><span>Vista previa · <b>${rounds.length}</b> rondas</span></div>
+       <ol class="tpl-rounds">${rounds.map((r, i) => `<li class="tpl-ri"><span class="ri-short">${esc(isAutoShort(r.short) ? pad(i + 1) : r.short)}</span><span class="ri-name">${esc(r.name)}</span><span class="ri-count">${r.steps.length}</span></li>`).join('')}</ol>`
+    : '<p class="tpl-help">Escribe una línea que empiece con <code>#</code> para la primera ronda.</p>';
+}
+
+/* --- acciones --- */
+function moveItem(list, from, to) {
+  if (from === to || to < 0 || to >= list.length) return false;
+  list.splice(to, 0, list.splice(from, 1)[0]);
+  return true;
+}
+function selectRound(i) {
+  tw.ri = i;
+  renderTplList();
+  renderTplDetail();
+}
+function addSteps(lines, at) {
+  const r = twRound();
+  if (!lines.length) return;
+  r.steps.splice(at ?? r.steps.length, 0, ...lines);
+  renderTplList();
+  renderTplDetail('new');
+  sfx('tick');
+}
+function tplAction(kind, el) {
+  const t = twCurrent();
+  const r = twRound();
+  switch (kind) {
+    case 'add-round':
+      t.rounds.push({ short: pad(t.rounds.length + 1), name: `Ronda ${t.rounds.length + 1}`, steps: [] });
+      tw.ri = t.rounds.length - 1;
+      renderTplList(); renderTplDetail('name'); sfx('create');
+      break;
+    case 'dup-round':
+      t.rounds.splice(tw.ri + 1, 0, { ...clone(r), short: isAutoShort(r.short) ? '' : r.short, name: `${r.name} (copia)` });
+      tw.ri += 1; renumber(t);
+      renderTplList(); renderTplDetail('name'); sfx('create');
+      break;
+    case 'del-round':
+      if (t.rounds.length <= 1) { sfx('error'); toast('Debe quedar al menos una ronda.'); return; }
+      t.rounds.splice(tw.ri, 1);
+      tw.ri = Math.min(tw.ri, t.rounds.length - 1); renumber(t);
+      renderTplList(); renderTplDetail(); sfx('remove');
+      break;
+    case 'copy-steps': {
+      const steps = r.steps.filter((s) => s.trim());
+      if (!steps.length) { sfx('error'); toast('Esta ronda no tiene pasos para copiar.'); return; }
+      t.rounds.forEach((x) => { x.steps = [...steps]; });
+      renderTplList(); sfx('save');
+      toast(`Los ${steps.length} pasos de "${r.name}" quedaron en las ${t.rounds.length} rondas. Ajusta las que cambien.`);
+      flashEl($('#tplRoundList'));
+      break;
+    }
+    case 'del-step':
+      r.steps.splice(+el.dataset.si, 1);
+      renderTplList(); renderTplDetail(Math.max(0, +el.dataset.si - 1)); sfx('remove');
+      break;
+    case 'number':
+      t.rounds.forEach((x, i) => { x.short = pad(i + 1); });
+      renderTplList(); renderTplDetail(); sfx('tick');
+      break;
+  }
+}
+
 function openTemplates() {
   const cur = selected();
   tw = {
     templates: clone(state.settings.templates),
     defaultId: state.settings.defaultTemplateId,
     editId: cur && getTemplate(cur.templateId) ? cur.templateId : state.settings.defaultTemplateId,
+    ri: 0, mode: 'visual', text: null,
   };
   renderTplDialog();
   $('#dlgTemplate').showModal();
 }
+// Antes de cambiar de plantilla o de modo: guarda lo escrito en la copia de trabajo.
+function settleEditor() {
+  syncName();
+  if (tw.mode === 'text') { if (!applyText()) return false; tw.text = null; }
+  return true;
+}
+
 $('#btnTemplate').addEventListener('click', () => { openTemplates(); sfx('tick'); });
-$('#tplSelect').addEventListener('change', (e) => { syncTplForm(); tw.editId = e.target.value; renderTplDialog(); });
+$('#tplSelect').addEventListener('change', (e) => {
+  if (!settleEditor()) { e.target.value = tw.editId; return; }
+  tw.editId = e.target.value; tw.ri = 0;
+  renderTplDialog();
+});
 $('#tplName').addEventListener('input', (e) => {
   const opt = $('#tplSelect').selectedOptions[0];
   if (opt) opt.textContent = (e.target.value.trim() || 'Sin nombre') + (tw.editId === tw.defaultId ? ' · predeterminada' : '');
 });
 $('#tplNew').addEventListener('click', () => {
-  syncTplForm();
+  if (!settleEditor()) return;
   const t = { id: uid(), name: `Plantilla ${tw.templates.length + 1}`, rounds: clone(DEFAULT_ROUNDS) };
   tw.templates.push(t);
-  tw.editId = t.id;
+  tw.editId = t.id; tw.ri = 0;
   renderTplDialog();
   $('#tplName').select();
   sfx('create');
 });
 $('#tplDup').addEventListener('click', () => {
-  syncTplForm();
+  if (!settleEditor()) return;
   const src = twCurrent();
   const t = { ...clone(src), id: uid(), name: `${src.name} (copia)` };
   tw.templates.push(t);
-  tw.editId = t.id;
+  tw.editId = t.id; tw.ri = 0;
   renderTplDialog();
   $('#tplName').select();
   sfx('create');
@@ -1787,34 +1961,137 @@ $('#tplDel').addEventListener('click', () => {
   if (tw.templates.length <= 1) { sfx('error'); toast('Debe quedar al menos una plantilla.'); return; }
   tw.templates = tw.templates.filter((t) => t.id !== tw.editId);
   if (!tw.templates.some((t) => t.id === tw.defaultId)) tw.defaultId = tw.templates[0].id;
-  tw.editId = tw.defaultId;
+  tw.editId = tw.defaultId; tw.ri = 0; tw.text = null;
   renderTplDialog();
   sfx('remove');
 });
 $('#tplDefault').addEventListener('change', (e) => {
-  if (e.target.checked) { syncTplForm(); tw.defaultId = tw.editId; renderTplDialog(); sfx('toggleOn'); }
+  if (!e.target.checked) return;
+  if (!settleEditor()) { e.target.checked = false; return; }
+  tw.defaultId = tw.editId;
+  renderTplDialog();
+  sfx('toggleOn');
 });
-$('#tplAdd').addEventListener('click', () => {
-  syncTplForm();
-  const t = twCurrent();
-  t.rounds.push({ short: String(t.rounds.length + 1), name: `Ronda ${t.rounds.length + 1}`, steps: [] });
+$('#tplMode').addEventListener('click', () => {
+  if (tw.mode === 'text') {
+    if (!applyText()) return;
+    tw.mode = 'visual'; tw.text = null;
+  } else {
+    tw.mode = 'text'; tw.text = null;
+  }
   renderTplDialog();
   sfx('tick');
-  $(`#tplRoundName${t.rounds.length - 1}`)?.select();
+  if (tw.mode === 'text') $('#tplText').focus();
 });
-$('#tplRounds').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-tpl-rm]');
-  if (!b) return;
-  syncTplForm();
-  const t = twCurrent();
-  if (t.rounds.length <= 1) { sfx('error'); toast('Debe quedar al menos una ronda.'); return; }
-  t.rounds.splice(+b.dataset.tplRm, 1);
-  renderTplDialog();
-  sfx('remove');
+
+// Clics: elegir ronda y acciones.
+$('#tplBody').addEventListener('click', (e) => {
+  const act = e.target.closest('[data-tpl]');
+  if (act) { tplAction(act.dataset.tpl, act); return; }
+  const item = e.target.closest('#tplRoundList .tpl-ri');
+  if (item) selectRound(+item.dataset.ri);
 });
+// Escribir: se guarda al momento en la copia de trabajo.
+$('#tplBody').addEventListener('input', (e) => {
+  const el = e.target;
+  if (el.id === 'tplText') { tw.text = el.value; renderTplPreview(); return; }
+  if (tw.mode !== 'visual') return;
+  const r = twRound();
+  const li = $(`#tplRoundList .tpl-ri[data-ri="${tw.ri}"]`);
+  if (el.id === 'tplShort') { r.short = el.value.trim(); if (li) li.querySelector('.ri-short').textContent = r.short || pad(tw.ri + 1); }
+  else if (el.id === 'tplRoundName') { r.name = el.value; if (li) li.querySelector('.ri-name').textContent = r.name || 'Sin nombre'; }
+  else if (el.classList.contains('si-in')) r.steps[+el.dataset.si] = el.value;
+});
+// Teclado: Enter crea el siguiente paso, Retroceso en un paso vacío lo borra, Alt+↑/↓ reordena.
+$('#tplBody').addEventListener('keydown', (e) => {
+  const el = e.target;
+  if (tw.mode !== 'visual') return;
+  const r = twRound();
+  if (el.id === 'tplNewStep' && e.key === 'Enter') {
+    e.preventDefault();
+    const v = el.value.trim();
+    if (v) addSteps([v]);
+  } else if (el.classList.contains('si-in')) {
+    const si = +el.dataset.si;
+    if (e.key === 'Enter') { e.preventDefault(); addSteps([''], si + 1); renderTplDetail(si + 1); }
+    else if (e.key === 'Backspace' && !el.value) { e.preventDefault(); r.steps.splice(si, 1); renderTplList(); renderTplDetail(si > 0 ? si - 1 : 'new'); }
+    else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      const to = si + (e.key === 'ArrowUp' ? -1 : 1);
+      if (moveItem(r.steps, si, to)) { renderTplDetail(to); sfx('tick'); }
+    }
+  } else if (el.matches('#tplRoundList .tpl-ri')) {
+    const ri = +el.dataset.ri;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectRound(ri); }
+    else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      const to = ri + (e.key === 'ArrowUp' ? -1 : 1);
+      if (moveItem(twCurrent().rounds, ri, to)) {
+        tw.ri = to; renumber(twCurrent());
+        renderTplList(); renderTplDetail(); sfx('tick');
+        $(`#tplRoundList .tpl-ri[data-ri="${to}"]`)?.focus();
+      }
+    }
+  }
+});
+// Pegar varias líneas: cada línea es un paso.
+$('#tplBody').addEventListener('paste', (e) => {
+  const el = e.target;
+  if (tw.mode !== 'visual' || !(el.id === 'tplNewStep' || el.classList.contains('si-in'))) return;
+  const lines = splitLines(e.clipboardData?.getData('text') || '');
+  if (lines.length < 2) return;
+  e.preventDefault();
+  const at = el.classList.contains('si-in') ? +el.dataset.si + 1 : undefined;
+  addSteps(lines, at);
+  toast(`${lines.length} pasos agregados.`);
+});
+// Arrastrar para reordenar rondas y pasos.
+let tplDrag = null; // { kind: 'ri' | 'si', from }
+$('#tplBody').addEventListener('dragstart', (e) => {
+  const li = e.target.closest?.('.tpl-ri[data-ri], .tpl-step');
+  if (!li || tw.mode !== 'visual') return;
+  tplDrag = li.classList.contains('tpl-step') ? { kind: 'si', from: +li.dataset.si } : { kind: 'ri', from: +li.dataset.ri };
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', '');
+  li.classList.add('dragging');
+});
+$('#tplBody').addEventListener('dragover', (e) => {
+  if (!tplDrag) return;
+  const li = e.target.closest(tplDrag.kind === 'si' ? '.tpl-step' : '#tplRoundList .tpl-ri');
+  $$('.drop-at').forEach((x) => x.classList.remove('drop-at'));
+  if (!li) return;
+  e.preventDefault();
+  li.classList.add('drop-at');
+});
+$('#tplBody').addEventListener('drop', (e) => {
+  if (!tplDrag) return;
+  const li = e.target.closest(tplDrag.kind === 'si' ? '.tpl-step' : '#tplRoundList .tpl-ri');
+  if (!li) return;
+  e.preventDefault();
+  const to = +(tplDrag.kind === 'si' ? li.dataset.si : li.dataset.ri);
+  if (tplDrag.kind === 'si') {
+    if (moveItem(twRound().steps, tplDrag.from, to)) { renderTplDetail(); sfx('tick'); }
+  } else if (moveItem(twCurrent().rounds, tplDrag.from, to)) {
+    tw.ri = to; renumber(twCurrent());
+    renderTplList(); renderTplDetail(); sfx('tick');
+  }
+});
+$('#tplBody').addEventListener('dragend', () => {
+  tplDrag = null;
+  $$('.dragging, .drop-at').forEach((x) => x.classList.remove('dragging', 'drop-at'));
+});
+
 $('#tplCancel').addEventListener('click', () => { $('#dlgTemplate').close(); sfx('toggleOff'); });
 $('#tplSave').addEventListener('click', () => {
-  syncTplForm();
+  if (!settleEditor()) return;
+  // Limpieza al guardar: sin pasos vacíos, nombres con texto, etiquetas completas.
+  for (const t of tw.templates) {
+    t.rounds.forEach((r, i) => {
+      r.name = (r.name || '').trim() || `Ronda ${i + 1}`;
+      r.steps = r.steps.map((s) => s.trim()).filter(Boolean);
+      if (!(r.short || '').trim()) r.short = pad(i + 1);
+    });
+  }
   state.settings.templates = tw.templates;
   state.settings.defaultTemplateId = tw.defaultId;
   $('#dlgTemplate').close();
