@@ -1,6 +1,6 @@
 # Clock Management
 
-Cronómetro de proyectos con **micro-logros**: un clic crea el proyecto y arranca el reloj, y cada paso que completas ilumina el camino hasta la meta.
+Cronómetro de proyectos con **micro-logros**: cada paso que completas avanza el riel hasta la meta, y si no pausas, cada logro vale más.
 
 Sin dependencias ni build. Todo se guarda en el navegador (`localStorage`).
 
@@ -12,35 +12,44 @@ node serve.js
 
 Luego entra a <http://localhost:5173>.
 
-> Los datos viven en el navegador y en ese origen (`localhost:5173`). Si borras los datos del sitio, se pierden: usa **Exportar** de vez en cuando para respaldar en JSON, e **Importar** para restaurar.
+> Los datos viven en el navegador y en ese origen (`localhost:5173`). Si borras los datos del sitio, se pierden: usa **Menú → Exportar respaldo** de vez en cuando, e **Importar respaldo** para restaurar.
 
-## Qué hace (v0.3)
+## Qué hace (v0.4)
 
-- **▶ Nuevo y arrancar**: crea "Proyecto N" con fecha/hora de inicio y arranca el cronómetro. El nombre se edita ahí mismo.
+- **+ Nuevo proyecto**: crea "Proyecto N" con fecha y hora, usando la plantilla predeterminada. El cronómetro **no** arranca solo: dale *Iniciar* o `Espacio`.
 - **Un solo cronómetro activo**: si arrancas otro proyecto, el anterior se pausa solo.
-- **Sigue contando con el navegador cerrado**: se guarda la hora de inicio, no un contador. Si vuelves después de más de 10 min sin la página abierta, te pregunta si ese tiempo cuenta: *Sí, cuenta*, *Descontar y seguir* o *Descontar y pausar* (corta la sesión en el momento en que se cerró).
-- **Camino de rondas**: Inicio → Evaluación A → Evaluación B → Evaluación combinada → 🏆 Meta.
-  - Cada ronda tiene pasos (micro-logros). Marcar uno da +10 XP, confeti y sonido.
-  - Cerrar una ronda da +50 XP; terminar el proyecto da +200 XP y celebración.
-  - El tiempo se atribuye a la ronda en la que estabas (se ve debajo de cada nodo).
-  - Clic en un nodo completado para reabrir esa ronda.
-- **Barra superior**: tiempo de hoy, logros de hoy, racha de días y nivel (500 XP por nivel).
-- **Plantilla**: define rondas y pasos por defecto para proyectos nuevos.
-- **Tema**: el botón de arriba alterna entre *sistema*, *claro* y *oscuro*; se recuerda.
-- **Confirmaciones**: eliminar, reabrir o importar piden confirmación en un diálogo propio de la página (Esc cancela).
+- **Sigue contando con el navegador cerrado**: se guarda la hora de inicio, no un contador. Si vuelves después de más de 10 min sin la página abierta, te pregunta si ese tiempo cuenta: *Sí, cuenta*, *Descontar y seguir* o *Descontar y pausar*.
+- **Camino de rondas**: Inicio → rondas de la plantilla → Meta.
+  - Cada ronda tiene pasos (micro-logros). El tiempo se atribuye a la ronda en curso.
+  - Clic en una estación completada para reabrirla.
+- **Plantillas**: varias plantillas, una predeterminada para proyectos nuevos. Editarlas no cambia proyectos existentes. En el encabezado de cada proyecto puedes cambiar su plantilla: si el proyecto no ha iniciado, se aplica directo; si ya tiene avance, pide confirmación (el avance se pierde, el tiempo se conserva sin ronda asignada).
+- **Ritmo** (tiempo seguido sin pausar):
+
+  | Minutos sin pausa | Ritmo | XP |
+  | --- | --- | --- |
+  | 0–20 | Calentando | ×1 |
+  | 20–45 | En ritmo | ×1.5 |
+  | 45+ | A fondo | ×2 |
+
+  Cambiar de ronda no rompe el ritmo; pausar sí.
+- **Pausa con fricción**: con ritmo ×1.5 o más, *Pausar* (o `Espacio`) hay que mantenerlo presionado ~1.3 s. Un clic corto solo te avisa qué perderías. Se puede apagar en el menú.
+- **XP**: paso 10 × ritmo, ronda 50 × ritmo, proyecto 200. Nivel cada 500 XP.
+- **Barra superior**: tiempo de hoy, logros de hoy, racha de días y nivel.
+- **Menú**: sonido, tema (sistema / claro / oscuro), pausa con fricción, exportar e importar respaldo.
+- **Confirmaciones** en un diálogo propio de la página (Esc cancela).
 - **Sesiones**: historial de cada arranque/pausa con su ronda.
 
 ### Atajos
 
 | Tecla | Acción |
 | --- | --- |
-| `Espacio` | Iniciar / pausar el proyecto seleccionado |
+| `Espacio` | Iniciar / pausar (mantener si llevas ritmo) |
 | `N` | Marcar el siguiente paso (o cerrar la ronda si ya están todos) |
 
 ## Archivos
 
 - `index.html` — estructura
-- `styles.css` — estilo "hoja de cronometraje" (modo claro/oscuro según el sistema; fuentes Barlow y JetBrains Mono desde Google Fonts, con respaldo local)
+- `styles.css` — estilo "hoja de cronometraje" (fuentes Barlow y JetBrains Mono desde Google Fonts, con respaldo local)
 - `app.js` — estado, lógica, render y efectos
 - `serve.js` — servidor estático mínimo con Node
 
@@ -48,7 +57,6 @@ Luego entra a <http://localhost:5173>.
 
 - Varios elementos por proyecto (p. ej. 10 cosas a evaluar, cada una con A, B y combinada) con una cuadrícula de progreso.
 - Meta diaria de tiempo o de pasos, con anillo de progreso.
-- Modo enfoque (pomodoro) ligado a la ronda actual.
 - Editar a mano horas de inicio/fin de una sesión.
-- Insignias desbloqueables (primer proyecto, 5 en una semana, ronda récord, etc.).
+- Insignias desbloqueables (primer proyecto, 5 en una semana, ronda récord, carrera sin pits, etc.).
 - Estimado vs. real por ronda para ir afinando tiempos.

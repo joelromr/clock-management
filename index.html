@@ -21,34 +21,51 @@
     <div class="brand">Clock<span>/</span>Mgmt</div>
     <div class="stats" id="stats"></div>
     <div class="actions">
-      <button id="btnTemplate" class="btn" title="Rondas y pasos para proyectos nuevos">Plantilla</button>
-      <button id="btnTheme" class="btn" title="Cambiar tema: sistema, claro u oscuro"></button>
-      <button id="btnSound" class="btn" title="Activar o silenciar sonido"></button>
-      <button id="btnExport" class="btn" title="Descargar respaldo JSON">Exportar</button>
-      <label class="btn" title="Cargar respaldo JSON">Importar<input type="file" id="fileImport" accept="application/json" hidden></label>
+      <button id="btnTemplate" class="btn" title="Crear y editar plantillas de rondas">Plantillas</button>
+      <div class="menu-wrap">
+        <button id="btnMenu" class="btn" aria-haspopup="true" aria-expanded="false" aria-controls="menu">Menú <span class="caret"></span></button>
+        <div id="menu" class="menu" role="menu" hidden>
+          <button class="menu-item" id="mSound" role="menuitem"><span>Sonido</span><b></b></button>
+          <button class="menu-item" id="mTheme" role="menuitem"><span>Tema</span><b></b></button>
+          <button class="menu-item" id="mFriction" role="menuitem" title="Con ritmo activo, pausar pide mantener presionado"><span>Pausa con fricción</span><b></b></button>
+          <hr>
+          <button class="menu-item" id="mExport" role="menuitem"><span>Exportar respaldo</span><b>JSON</b></button>
+          <label class="menu-item" role="menuitem" for="fileImport"><span>Importar respaldo</span><b>JSON</b><input type="file" id="fileImport" accept="application/json" hidden></label>
+        </div>
+      </div>
     </div>
   </header>
 
   <div class="layout">
     <aside class="sidebar">
-      <button class="btn btn-solid btn-big" data-action="new"><span class="tri"></span>Nuevo y arrancar</button>
+      <button class="btn btn-solid btn-big" data-action="new">+ Nuevo proyecto</button>
       <div id="projectList" class="project-list"></div>
       <p class="hint"><kbd>Espacio</kbd> iniciar / pausar<br><kbd>N</kbd> siguiente paso</p>
     </aside>
     <main id="main"></main>
   </div>
 
-  <dialog id="dlgTemplate" class="dlg">
+  <dialog id="dlgTemplate" class="dlg dlg-wide">
     <form id="tplForm" method="dialog">
-      <h2>Plantilla de rondas</h2>
-      <p class="dlg-note">Se aplica a los proyectos nuevos. Etiqueta corta, nombre y un paso por línea.</p>
+      <h2>Plantillas</h2>
+      <p class="dlg-note">Editar una plantilla no cambia proyectos existentes. Los proyectos nuevos usan la predeterminada; en cada proyecto puedes cambiarla desde su encabezado.</p>
+      <div class="tpl-bar">
+        <select id="tplSelect" aria-label="Plantilla a editar"></select>
+        <button type="button" class="btn btn-small" id="tplNew">Nueva</button>
+        <button type="button" class="btn btn-small" id="tplDup">Duplicar</button>
+        <button type="button" class="btn btn-small btn-danger" id="tplDel">Eliminar</button>
+      </div>
+      <div class="tpl-meta">
+        <input id="tplName" aria-label="Nombre de la plantilla" placeholder="Nombre de la plantilla">
+        <label class="chk"><input type="checkbox" id="tplDefault"> Predeterminada</label>
+      </div>
+      <p class="dlg-note">Por ronda: etiqueta corta, nombre y un paso por línea.</p>
       <div id="tplRounds"></div>
       <div class="dlg-actions">
         <button type="button" class="btn" id="tplAdd">+ Ronda</button>
-        <button type="button" class="btn" id="tplReset">Restaurar</button>
         <span class="spacer"></span>
-        <button value="cancel" class="btn" formnovalidate>Cancelar</button>
-        <button value="save" class="btn btn-solid">Guardar</button>
+        <button type="button" class="btn" id="tplCancel">Cancelar</button>
+        <button type="button" class="btn btn-solid" id="tplSave">Guardar</button>
       </div>
     </form>
   </dialog>
@@ -59,8 +76,8 @@
       <p id="confirmText"></p>
       <div class="dlg-actions">
         <span class="spacer"></span>
-        <button value="cancel" class="btn" id="confirmCancel">Cancelar</button>
-        <button value="ok" class="btn btn-solid" id="confirmOk">Aceptar</button>
+        <button type="button" class="btn" id="confirmCancel">Cancelar</button>
+        <button type="button" class="btn btn-solid" id="confirmOk">Aceptar</button>
       </div>
     </form>
   </dialog>
