@@ -460,10 +460,11 @@ const idb = {
   set(k, v) { return this.run('readwrite', (s) => s.put(v, k)); },
   del(k) { return this.run('readwrite', (s) => s.delete(k)); },
 };
-async function scanDir(dir, depth = 0, out = []) {
+// `key` = ruta relativa dentro de la carpeta (p. ej. "fotos/playa.jpg"): es lo único que se recuerda.
+async function scanDir(dir, depth = 0, out = [], prefix = '') {
   for await (const entry of dir.values()) {
-    if (entry.kind === 'file' && IMG_EXT.test(entry.name)) out.push({ name: entry.name, getFile: () => entry.getFile() });
-    else if (entry.kind === 'directory' && depth < 2) await scanDir(entry, depth + 1, out);
+    if (entry.kind === 'file' && IMG_EXT.test(entry.name)) out.push({ key: prefix + entry.name, getFile: () => entry.getFile() });
+    else if (entry.kind === 'directory' && depth < 2) await scanDir(entry, depth + 1, out, `${prefix}${entry.name}/`);
   }
   return out;
 }
@@ -520,14 +521,30 @@ function folderLabel() {
   }
 }
 
-async function showLevelImage(lvl, manual = false) {
+// Cada nivel desbloquea una imagen al azar y queda fija para ese nivel (state.levelImage).
+// mode: 'new' = acabas de subir (elige otra y la fija) · 'current' = volver a ver la del nivel actual
+//       'random' = prueba de debug (no fija nada)
+function pickSource(mode, lvl) {
+  const cur = state.levelImage;
+  if (mode === 'current' && cur && cur.level === lvl) {
+    const same = gallery.sources.find((s) => s.key === cur.key);
+    if (same) return same;
+  }
+  let pool = gallery.sources;
+  if (cur && pool.length > 1) pool = pool.filter((s) => s.key !== cur.key); // que no repita la anterior
+  const src = pool[Math.floor(Math.random() * pool.length)];
+  if (mode !== 'random') { state.levelImage = { level: lvl, key: src.key }; save(); }
+  return src;
+}
+
+async function showLevelImage(lvl, { manual = false, mode = 'new' } = {}) {
   if (!state.settings.levelImages || $('.photo-overlay')) return;
   if (gallery.status === 'needs-permission') await loadGallery(true);
   if (!gallery.sources.length) {
     if (manual) toast('Elige una carpeta con imágenes en Menú → Carpeta.');
     return;
   }
-  const src = gallery.sources[Math.floor(Math.random() * gallery.sources.length)];
+  const src = pickSource(mode, lvl);
   let url;
   try { url = URL.createObjectURL(await src.getFile()); }
   catch { gallery.status = 'missing'; gallery.sources = []; renderMenu(); toast('No encontré la carpeta de imágenes.'); return; }
@@ -680,7 +697,7 @@ document.addEventListener('click', (e) => {
     case 'away': simulateAway(15); break;
     case 'reset': resetDebug(true); break;
     case 'blank': resetDebug(false); break;
-    case 'photo': showLevelImage(level(), true); break;
+    case 'photo': showLevelImage(level(), { manual: true, mode: 'random' }); break;
   }
 });
 
@@ -1244,16 +1261,18 @@ $('#mForget').addEventListener('click', forgetFolder);
 $('#dirFallback').addEventListener('change', (e) => {
   const files = [...e.target.files].filter((f) => IMG_EXT.test(f.name));
   e.target.value = '';
-  gallery.sources = files.map((f) => ({ name: f.name, getFile: async () => f }));
+  // Misma ruta relativa que con la API de carpetas, para que la imagen fijada coincida.
+  gallery.sources = files.map((f) => ({ key: f.webkitRelativePath.split('/').slice(1).join('/') || f.name, getFile: async () => f }));
   gallery.name = files[0]?.webkitRelativePath?.split('/')[0] || '';
   gallery.status = files.length ? 'session' : 'empty';
   renderMenu();
   toast(files.length ? `${files.length} imágenes listas (solo esta sesión).` : 'Esa carpeta no tiene imágenes.');
 });
 // Clic (o Enter) en el nivel: muestra una imagen al azar.
-document.addEventListener('click', (e) => { if (e.target.closest('.stat.level.clickable')) showLevelImage(level(), true); });
+const showCurrentLevelImage = () => showLevelImage(level(), { manual: true, mode: 'current' });
+document.addEventListener('click', (e) => { if (e.target.closest('.stat.level.clickable')) showCurrentLevelImage(); });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && e.target.closest?.('.stat.level.clickable')) showLevelImage(level(), true);
+  if (e.key === 'Enter' && e.target.closest?.('.stat.level.clickable')) showCurrentLevelImage();
 });
 $('#mExport').addEventListener('click', () => {
   closeMenu();
