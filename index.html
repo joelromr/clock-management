@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clock Management</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">⏱ <span>Clock</span> Management</div>
+    <div class="stats" id="stats"></div>
+    <div class="actions">
+      <button id="btnTemplate" class="ghost" title="Rondas y pasos para proyectos nuevos">Plantilla</button>
+      <button id="btnSound" class="ghost" title="Sonido"></button>
+      <button id="btnExport" class="ghost" title="Descargar respaldo JSON">Exportar</button>
+      <label class="ghost btn-like" title="Cargar respaldo JSON">Importar<input type="file" id="fileImport" accept="application/json" hidden></label>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <button class="primary big" data-action="new">▶ Nuevo y arrancar</button>
+      <div id="projectList" class="project-list"></div>
+      <p class="hint muted small"><kbd>Espacio</kbd> iniciar/pausar · <kbd>N</kbd> siguiente paso</p>
+    </aside>
+    <main id="main"></main>
+  </div>
+
+  <dialog id="dlgTemplate" class="dlg">
+    <form id="tplForm" method="dialog">
+      <h2>Plantilla de rondas</h2>
+      <p class="muted small">Se aplica a los proyectos <b>nuevos</b>. Etiqueta corta, nombre y un paso por línea.</p>
+      <div id="tplRounds"></div>
+      <div class="dlg-actions">
+        <button type="button" class="ghost" id="tplAdd">+ Ronda</button>
+        <button type="button" class="ghost" id="tplReset">Restaurar</button>
+        <span class="spacer"></span>
+        <button value="cancel" class="ghost" formnovalidate>Cancelar</button>
+        <button value="save" class="primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <canvas id="fx"></canvas>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
