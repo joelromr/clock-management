@@ -40,7 +40,6 @@ Luego entra a <http://localhost:5173>.
   - Chrome/Edge recuerdan la carpeta (pueden pedir un clic de permiso al volver). Firefox/Safari no tienen esa API: ahí la eliges cada sesión.
 - **Debug** (*Menú → Debug*, al final del menú; el panel aparece desplegado al final de la página): *modo prueba* con datos aparte (copia de los reales), reloj simulado (+1 min, +10 min, +30 min, +1 h), simular navegador cerrado 15 min, +50 XP y "Subir de nivel" (corren el flujo real, imagen incluida), y reiniciar la prueba. Una banda amarilla arriba indica que estás en modo prueba.
 - **Descontar tiempo**: bajo el reloj, *−1 / −3 / −5 min* quitan minutos que no trabajaste (p. ej. ir al baño) de la sesión en curso (o la última), sin pausar. Se restan del tiempo **y también del ritmo** (el baño no suma hacia ningún multiplicador). Se puede deshacer y el historial muestra lo descontado.
-- **Medir ausencia**: el primer botón de *Descontar* (solo con el reloj corriendo). Congela el reloj y el ritmo y mide cuánto estás fuera; al volver, *Regresé* (o `Espacio`) descuenta exactamente ese tiempo, con *Deshacer*. Sigue midiendo aunque cierres la pestaña; si pausas o cambias de proyecto estando fuera, se descuenta solo.
 - **Tiempos con segundos**: todo lo transcurrido se muestra sin redondear ("3m 07s", "1h 05m 12s").
 - **Favicon**: cronómetro amarillo; con punto rojo mientras el reloj corre.
 - **XP**: paso 10 × ritmo, ronda 50 × ritmo, proyecto 200. Nivel cada 500 XP, empezando en nivel 0.
@@ -54,7 +53,7 @@ Luego entra a <http://localhost:5173>.
 
 | Tecla | Acción |
 | --- | --- |
-| `Espacio` | Iniciar / pausar (mantener si llevas ritmo); estando fuera, "Regresé" |
+| `Espacio` | Iniciar / pausar (mantener si llevas ritmo) |
 | `N` | Marcar el siguiente paso (o cerrar la ronda si ya están todos) |
 
 ## Archivos

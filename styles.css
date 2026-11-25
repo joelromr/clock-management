@@ -521,13 +521,6 @@ dialog::backdrop { background: color-mix(in srgb, var(--paper) 70%, transparent)
 .chip:hover { color: var(--ink); border-color: var(--ink); }
 .chip:active { transform: translateY(1px); }
 .chip-undo { border-style: dashed; }
-.chip-primary { background: var(--signal); color: var(--on-signal); border-color: var(--ink); }
-.chip-primary:hover { background: var(--signal); color: var(--on-signal); filter: brightness(1.06); }
-/* Midiendo ausencia: reloj atenuado, contador de "fuera" en rojo */
-.timer.capturing .clock, .timer.capturing .dial { opacity: .45; transition: opacity .3s ease; }
-.timer.capturing .status { color: var(--stop); }
-.deduct.capturing .away-live { color: var(--stop); display: inline-flex; align-items: center; gap: 6px; }
-.away-time { font: 600 15px var(--f-mono); font-variant-numeric: tabular-nums; color: var(--stop); min-width: 64px; }
 .deduct-total { font: 400 12px var(--f-mono); color: var(--ink-2); }
 .clock.dip { animation: dip .5s cubic-bezier(.2, .8, .2, 1); }
 @keyframes dip { 30% { transform: translateY(4px); color: var(--go); } }
