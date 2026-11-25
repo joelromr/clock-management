@@ -9,7 +9,8 @@ const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascrip
 
 http.createServer((req, res) => {
   const urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  const file = path.join(ROOT, urlPath === '/' ? 'index.html' : urlPath);
+  // Una carpeta sirve su index.html (como GitHub Pages): / → index.html, /tests/ → tests/index.html
+  const file = path.join(ROOT, urlPath.endsWith('/') ? `${urlPath}index.html` : urlPath);
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); return res.end('No encontrado'); }

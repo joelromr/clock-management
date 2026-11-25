@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pruebas · Clock Management</title>
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --paper: #eceee9; --sheet: #f8f9f6; --ink: #15181d; --ink-2: #555b62; --rule: #c5c9c2;
+      --signal: #f5c400; --go: #1e7a4c; --stop: #c8372d;
+      --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+      --cond: "Barlow Condensed", "Arial Narrow", sans-serif;
+      color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
+    header { padding: 20px max(16px, 3vw) 14px; background: var(--sheet); border-bottom: 1.5px solid var(--ink); display: grid; gap: 10px; }
+    h1 { margin: 0; font: 700 32px/1 var(--cond); text-transform: uppercase; letter-spacing: .02em; }
+    header p { margin: 0; color: var(--ink-2); max-width: 70ch; }
+    code { font-family: var(--mono); font-size: 13px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+    button {
+      font: 600 15px var(--cond); text-transform: uppercase; letter-spacing: .06em; cursor: pointer;
+      padding: 10px 16px; border: 1.5px solid var(--ink); border-radius: 3px; background: var(--ink); color: var(--sheet);
+    }
+    button:disabled { opacity: .5; cursor: progress; }
+    label { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
+    #summary { font: 600 14px var(--mono); }
+    #summary.ok { color: var(--go); }
+    #summary.bad { color: var(--stop); }
+    main { padding: 16px max(16px, 3vw) 260px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; background: var(--sheet); border: 1px solid var(--rule); }
+    th { text-align: left; font: 600 12px var(--cond); text-transform: uppercase; letter-spacing: .1em; color: var(--ink-2); padding: 8px 10px; border-bottom: 1.5px solid var(--ink); }
+    td { padding: 8px 10px; border-top: 1px solid var(--rule); vertical-align: top; }
+    td.n, td.ms { font: 12px var(--mono); color: var(--ink-2); white-space: nowrap; }
+    td.ms { text-align: right; }
+    .st { font: 700 12px var(--cond); text-transform: uppercase; letter-spacing: .1em; padding: 2px 8px; border-radius: 2px; white-space: nowrap; }
+    .st.pass { background: var(--go); color: #fff; }
+    .st.fail { background: var(--stop); color: #fff; }
+    .st.run { background: var(--signal); color: var(--ink); }
+    .st.skip, .st.wait { border: 1px solid var(--rule); color: var(--ink-2); }
+    .detail { font: 12px/1.5 var(--mono); color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+    .detail .err { color: var(--stop); }
+    #stage {
+      position: fixed; right: 12px; bottom: 12px; width: 360px; height: 230px; overflow: hidden;
+      border: 1.5px solid var(--ink); background: var(--sheet); border-radius: 3px;
+    }
+    #stage::before { content: "App bajo prueba"; position: absolute; top: 4px; left: 8px; z-index: 2; font: 600 11px var(--cond); text-transform: uppercase; letter-spacing: .1em; color: var(--ink-2); }
+    #stage iframe { position: absolute; top: 20px; left: 0; width: 1200px; height: 700px; border: 0; transform: scale(.3); transform-origin: 0 0; background: #fff; }
+    @media (max-width: 600px) { #stage { width: 220px; height: 150px; } #stage iframe { transform: scale(.18); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Pruebas</h1>
+    <p>Cada prueba abre la app en un marco con datos aparte (<code>clock-management-test:*</code>): tus proyectos no se tocan, y al final se verifica que sigan idénticos. Los tiempos se comprueban con un reloj controlado, al milisegundo, y además contra el reloj real.</p>
+    <div class="controls">
+      <button id="run">Correr pruebas</button>
+      <label><input type="checkbox" id="realtime" checked> Incluir prueba en tiempo real (~40 s)</label>
+      <label><input type="checkbox" id="long"> Prueba larga en tiempo real (5 min)</label>
+      <span id="summary"></span>
+    </div>
+  </header>
+  <main>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Prueba</th><th>Resultado</th><th>Detalle</th><th>ms</th></tr></thead>
+        <tbody id="results"></tbody>
+      </table>
+    </div>
+  </main>
+  <div id="stage"></div>
+  <script src="tests.js"></script>
+</body>
+</html>

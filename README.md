@@ -14,11 +14,13 @@ Luego entra a <http://localhost:5173>.
 
 > Los datos viven en el navegador y en ese origen (`localhost:5173`). Si borras los datos del sitio, se pierden: usa **Menú → Exportar respaldo** de vez en cuando, e **Importar respaldo** para restaurar.
 
-## Qué hace (v0.4)
+## Qué hace (v1.0)
 
 - **+ Nuevo proyecto**: crea "Proyecto N" con fecha y hora, usando la plantilla predeterminada. El cronómetro **no** arranca solo: dale *Iniciar* o `Espacio`.
 - **Un solo cronómetro activo**: si arrancas otro proyecto, el anterior se pausa solo.
-- **Sigue contando con el navegador cerrado**: se guarda la hora de inicio, no un contador. Si vuelves después de más de 10 min sin la página abierta, te pregunta si ese tiempo cuenta: *Sí, cuenta*, *Descontar y seguir* o *Descontar y pausar*.
+- **Sigue contando con el navegador cerrado**: se guarda la hora de inicio, no un contador. Si vuelves después de más de 10 min sin la página abierta, te pregunta si ese tiempo cuenta: *Sí, cuenta*, *Descontar y seguir* o *Descontar y pausar*. Lo mismo si la computadora se suspendió con la página abierta. Si recargas sin contestar, el aviso sigue ahí.
+- **Varias pestañas**: si tienes la app abierta en más de una, se sincronizan solas y ninguna pisa los cambios de otra.
+- **Datos a prueba de fallas**: si algo guardado está dañado (o un respaldo viene incompleto), se repara al cargar en lugar de romper la app.
 - **Camino de rondas**: Inicio → rondas de la plantilla → Meta.
   - Cada ronda tiene pasos (micro-logros). El tiempo se atribuye a la ronda en curso.
   - Clic en una estación completada para reabrirla.
@@ -56,12 +58,30 @@ Luego entra a <http://localhost:5173>.
 | `Espacio` | Iniciar / pausar (mantener si llevas ritmo) |
 | `N` | Marcar el siguiente paso (o cerrar la ronda si ya están todos) |
 
+## Pruebas
+
+Abre <http://localhost:5173/tests/> y dale **Correr pruebas**. Cada prueba abre la app en un marco con datos aparte (`clock-management-test:*`): tus proyectos nunca se tocan, y la última prueba verifica que sigan idénticos.
+
+- **Medición de tiempo, al milisegundo**, con un reloj controlado: iniciar/pausar/reanudar, cambios de ronda y de proyecto (sin huecos ni traslapes), completar y reabrir, descontar (exacto, con tope, deshacer, también del ritmo), "Hoy" cruzando la medianoche, y que la pantalla muestre exactamente lo medido.
+- **Persistencia**: recargar con el reloj corriendo, navegador cerrado (las tres opciones), aviso que sobrevive a una recarga, computadora suspendida, pestaña en segundo plano.
+- **Ritmo y XP**: umbrales exactos (29:59.999 vs 30:00.000), pausa sostenida por tramo, intensidad del golpe, pit stop, valores de XP y niveles.
+- **Datos**: plantillas, migración desde la primera versión, datos dañados, dos cronómetros guardados a la vez, respaldo ida y vuelta, importación inválida o del modo prueba.
+- **Estabilidad**: dos pestañas, modo prueba aislado, navegador que no deja guardar, HTML inyectado, teclado, borrar el proyecto que corre, rendimiento con 12 000 sesiones.
+- **Tiempo real** (opcional, ~40 s, y una larga de 5 min): lo medido debe caer exactamente entre los clics según el reloj del sistema y el reloj monotónico, y la pantalla debe coincidir en cada lectura.
+
 ## Archivos
 
 - `index.html` — estructura
 - `styles.css` — estilo "hoja de cronometraje" (fuentes Barlow y JetBrains Mono desde Google Fonts, con respaldo local)
 - `app.js` — estado, lógica, render y efectos
+- `favicon.svg` — ícono
 - `serve.js` — servidor estático mínimo con Node
+- `tests/` — página de pruebas automáticas
+
+## Límites conocidos
+
+- El tiempo se mide con el reloj de la computadora. Si cambias la hora del sistema a mano con un cronómetro corriendo, ese salto se cuenta (o se descuenta).
+- Los datos viven por navegador y por dirección: `localhost:5173` y GitHub Pages son espacios distintos. Para pasar tus proyectos, usa Exportar en uno e Importar en el otro.
 
 ## Ideas por rebotar
 

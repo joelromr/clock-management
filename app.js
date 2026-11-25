@@ -5,7 +5,18 @@
    Todo se guarda en localStorage (este navegador).
    ========================================================= */
 
-const STORAGE_KEY = 'clock-management:v1';
+const APP_VERSION = '1.0.0';
+
+// Con ?test (página tests/) todo usa llaves aparte: las pruebas nunca tocan tus datos.
+const TEST_MODE = /[?&]test(?:[=&]|$)/.test(location.search);
+const NS = TEST_MODE ? 'clock-management-test' : 'clock-management';
+if (TEST_MODE) { // las pruebas leen aquí cualquier error que ocurra en la app
+  window.__errors = [];
+  addEventListener('error', (e) => window.__errors.push(String(e.message || e.error)));
+  addEventListener('unhandledrejection', (e) => window.__errors.push(`Promesa: ${e.reason?.message || e.reason}`));
+}
+
+const STORAGE_KEY = `${NS}:v1`;
 const XP = { step: 10, round: 50, project: 200 };
 const XP_PER_LEVEL = 500;
 const AWAY_THRESHOLD = 10 * 60 * 1000; // a partir de 10 min sin la página abierta, preguntamos
@@ -24,11 +35,14 @@ const PACE = [
 const GOAL_MIN = PACE[PACE.length - 1].min;
 
 // Modo prueba: datos en otra llave y reloj que se puede adelantar.
-const DEBUG_KEY = 'clock-management:debug';
-const MODE_KEY = 'clock-management:mode';
+const DEBUG_KEY = `${NS}:debug`;
+const MODE_KEY = `${NS}:mode`;
 let debugMode = false;
 try { debugMode = localStorage.getItem(MODE_KEY) === 'debug'; } catch { /* sin storage */ }
 const storageKey = () => (debugMode ? DEBUG_KEY : STORAGE_KEY);
+// "Última vez que la página estuvo abierta": llave propia, para que una pestaña vieja nunca
+// sobrescriba tus datos solo por actualizar esta marca.
+const seenKey = () => `${NS}:${debugMode ? 'debug-' : ''}seen`;
 let timeOffset = 0; // ms que se adelantó el reloj (solo en modo prueba)
 let frozen = false; // true justo antes de recargar al cambiar de modo, para no sobrescribir
 
@@ -67,7 +81,7 @@ const fmtDate = (t) => new Date(t).toLocaleDateString('es-MX', { weekday: 'short
 const fmtDay = (t) => new Date(t).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
 const fmtTime = (t) => new Date(t).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 const dayKey = (t) => { const d = new Date(t); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
-const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const startOfToday = () => { const d = new Date(now()); d.setHours(0, 0, 0, 0); return d.getTime(); };
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 /* ---------- almacenamiento ---------- */
@@ -82,26 +96,92 @@ function freshState() {
     },
   };
 }
+// Repara lo que venga (localStorage, respaldo importado, versión vieja) para que la app nunca truene:
+// tipos correctos, sesiones válidas, un solo cronómetro corriendo, ids únicos.
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+const str = (v, d) => (typeof v === 'string' ? v : d);
+function cleanRounds(list, withState) {
+  return (Array.isArray(list) ? list : []).filter((r) => r && typeof r === 'object').map((r, ri) => {
+    const base = { short: str(r.short, String(ri + 1)), name: str(r.name, `Ronda ${ri + 1}`) };
+    if (!withState) return { ...base, steps: (Array.isArray(r.steps) ? r.steps : []).filter((x) => typeof x === 'string') };
+    const out = { ...base, completedAt: isNum(r.completedAt) ? r.completedAt : null };
+    if (isNum(r.xp)) out.xp = r.xp;
+    out.steps = (Array.isArray(r.steps) ? r.steps : []).filter((x) => x && typeof x === 'object').map((x) => {
+      const st = { id: str(x.id, '') || uid(), text: str(x.text, ''), doneAt: isNum(x.doneAt) ? x.doneAt : null };
+      if (isNum(x.xp)) st.xp = x.xp;
+      return st;
+    });
+    return out;
+  });
+}
+function cleanSession(x) {
+  if (!x || typeof x !== 'object' || !isNum(x.start)) return null;
+  const end = x.end == null ? null : (isNum(x.end) && x.end >= x.start ? x.end : undefined);
+  if (end === undefined) return null;
+  const s = { id: str(x.id, '') || uid(), start: x.start, end, round: Number.isInteger(x.round) && x.round >= 0 ? x.round : null };
+  if (isNum(x.deducted) && x.deducted > 0) s.deducted = x.deducted;
+  if (Array.isArray(x.deductions)) {
+    const d = x.deductions.filter((y) => y && isNum(y.at) && isNum(y.ms) && y.ms > 0).map((y) => ({ at: y.at, ms: y.ms }));
+    if (d.length) s.deductions = d;
+  }
+  return s;
+}
 function normalize(s) {
   const base = freshState();
-  if (!s || !Array.isArray(s.projects)) return base;
-  const old = s.settings || {};
+  if (!s || typeof s !== 'object' || !Array.isArray(s.projects)) return base;
+  const old = s.settings && typeof s.settings === 'object' ? s.settings : {};
   const st = {
-    sound: old.sound ?? true,
-    theme: old.theme ?? 'system',
-    friction: old.friction ?? true,
-    levelImages: old.levelImages ?? false,
+    sound: typeof old.sound === 'boolean' ? old.sound : true,
+    theme: ['system', 'light', 'dark'].includes(old.theme) ? old.theme : 'system',
+    friction: typeof old.friction === 'boolean' ? old.friction : true,
+    levelImages: typeof old.levelImages === 'boolean' ? old.levelImages : false,
     templates: old.templates,
     defaultTemplateId: old.defaultTemplateId,
   };
   // Migración v1 → v2: la plantilla única pasa a ser la predeterminada.
-  if (!Array.isArray(st.templates) || !st.templates.length) {
+  const migrating = !Array.isArray(st.templates) || !st.templates.length;
+  if (migrating) {
     const rounds = Array.isArray(old.template) && old.template.length ? old.template : clone(DEFAULT_ROUNDS);
     st.templates = [{ id: DEFAULT_TPL_ID, name: 'Evaluación A / B / combinada', rounds }];
     st.defaultTemplateId = DEFAULT_TPL_ID;
-    for (const p of s.projects) if (!p.templateId) p.templateId = DEFAULT_TPL_ID;
   }
+  st.templates = st.templates.filter((t) => t && typeof t === 'object')
+    .map((t) => ({ id: str(t.id, '') || uid(), name: str(t.name, 'Plantilla'), rounds: cleanRounds(t.rounds, false) }))
+    .filter((t) => t.rounds.length);
+  if (!st.templates.length) st.templates = clone(base.settings.templates);
   if (!st.templates.some((t) => t.id === st.defaultTemplateId)) st.defaultTemplateId = st.templates[0].id;
+
+  const ids = new Set();
+  s.projects = s.projects.filter((p) => p && typeof p === 'object').map((p, i) => {
+    let rounds = cleanRounds(p.rounds, true);
+    if (!rounds.length) rounds = cleanRounds(DEFAULT_ROUNDS.map((r) => ({ ...r, steps: r.steps.map((text) => ({ text })) })), true);
+    const sessions = (Array.isArray(p.sessions) ? p.sessions : []).map(cleanSession).filter(Boolean).sort((a, b) => a.start - b.start);
+    let cur = Number.isInteger(p.currentRound) ? Math.min(Math.max(p.currentRound, 0), rounds.length) : 0;
+    let completedAt = isNum(p.completedAt) ? p.completedAt : null;
+    if (completedAt != null && cur < rounds.length) cur = rounds.length; // completado manda
+    if (cur >= rounds.length) completedAt = completedAt ?? rounds[rounds.length - 1].completedAt ?? Date.now();
+    let id = str(p.id, '') || uid();
+    if (ids.has(id)) id = uid();
+    ids.add(id);
+    const out = {
+      ...p, id, name: str(p.name, `Proyecto ${i + 1}`),
+      createdAt: isNum(p.createdAt) ? p.createdAt : sessions[0]?.start ?? Date.now(),
+      completedAt, currentRound: cur, rounds, sessions,
+    };
+    if (migrating && !out.templateId) out.templateId = DEFAULT_TPL_ID;
+    if (out.templateId != null && typeof out.templateId !== 'string') delete out.templateId;
+    return out;
+  });
+  // Un solo cronómetro corriendo: si hubiera varios, sigue el más reciente y los demás se cierran donde empezó ese.
+  const live = s.projects.flatMap((p) => p.sessions.filter((x) => x.end == null));
+  if (live.length > 1) {
+    live.sort((a, b) => b.start - a.start);
+    for (const x of live.slice(1)) x.end = Math.max(x.start, live[0].start);
+  }
+  if (!s.projects.some((p) => p.id === s.selectedId)) s.selectedId = null;
+  if (s.away && !(typeof s.away === 'object' && isNum(s.away.from) && typeof s.away.pid === 'string')) s.away = null;
+  if (s.levelImage && !(typeof s.levelImage === 'object' && typeof s.levelImage.key === 'string' && isNum(s.levelImage.level))) s.levelImage = null;
+  for (const k of ['debugOffset', 'debugXp']) if (s[k] != null && !isNum(s[k])) delete s[k];
   s.settings = st;
   s.version = 2;
   return s;
@@ -114,11 +194,21 @@ function load() {
 }
 function save() {
   if (frozen) return;
-  state.lastSeen = now();
   try { localStorage.setItem(storageKey(), JSON.stringify(state)); }
   catch {
     if (!storageWarned) { storageWarned = true; toast('No se pudo guardar en el navegador. Usa Exportar para respaldar.'); }
   }
+  touchSeen();
+}
+function touchSeen() {
+  try { localStorage.setItem(seenKey(), String(now())); } catch { /* sin storage */ }
+}
+function readSeen() {
+  try {
+    const v = Number(localStorage.getItem(seenKey()));
+    if (v > 0) return v;
+  } catch { /* sin storage */ }
+  return isNum(state.lastSeen) ? state.lastSeen : null; // datos de versiones anteriores
 }
 
 let state = normalize(load());
@@ -145,6 +235,21 @@ function activeSession() {
 }
 // Tiempo neto de una sesión: lo transcurrido menos lo que descontaste (baño, interrupciones).
 const sessionMs = (s, n = now()) => Math.max(0, (s.end ?? n) - s.start - (s.deducted || 0));
+// Cada descuento ocupa los minutos justo antes de cuando lo hiciste ("me fui 5 min, ya volví").
+// Se apilan hacia atrás sin traslaparse; sirve para repartir bien el descuento si la sesión cruza la medianoche.
+function deductionIntervals(s) {
+  let list = Array.isArray(s.deductions) && s.deductions.length ? s.deductions : null;
+  if (!list) list = s.deducted ? [{ at: s.end ?? now(), ms: s.deducted }] : []; // datos sin detalle
+  const sorted = [...list].sort((x, y) => x.at - y.at);
+  const out = [];
+  let floor = Infinity;
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const end = Math.min(sorted[i].at, floor);
+    out.push([end - sorted[i].ms, end]);
+    floor = end - sorted[i].ms;
+  }
+  return out;
+}
 function sessionsTime(p, filter) {
   const n = now();
   let t = 0;
@@ -173,9 +278,12 @@ function runInfo(p) {
   const act = p.sessions.find((s) => s.end == null);
   if (!act) return null;
   let start = act.start, deducted = act.deducted || 0, found = true;
+  const used = new Set([act]); // cada sesión una sola vez: una sesión de duración cero no debe ciclar
   while (found) {
     found = false;
-    for (const s of p.sessions) if (s.end === start) { start = s.start; deducted += s.deducted || 0; found = true; break; }
+    for (const s of p.sessions) {
+      if (!used.has(s) && s.end === start) { used.add(s); start = s.start; deducted += s.deducted || 0; found = true; break; }
+    }
   }
   return { start, deducted };
 }
@@ -225,7 +333,10 @@ function todayMs() {
   let t = 0;
   for (const p of state.projects) for (const s of p.sessions) {
     const a = Math.max(s.start, s0), b = s.end ?? n;
-    if (b > a) t += Math.max(0, b - a - (s.deducted || 0));
+    if (b <= a) continue;
+    let ded = 0; // solo la parte de los descuentos que cae hoy
+    for (const [d0, d1] of deductionIntervals(s)) ded += Math.max(0, Math.min(d1, b) - Math.max(d0, a));
+    t += Math.max(0, b - a - ded);
   }
   return t;
 }
@@ -233,7 +344,7 @@ const todayAchievements = () => { const s0 = startOfToday(); return achievementT
 function streak() {
   const days = new Set(achievementTimes().map(dayKey));
   for (const p of state.projects) for (const s of p.sessions) days.add(dayKey(s.start));
-  const d = new Date(); d.setHours(12, 0, 0, 0);
+  const d = new Date(now()); d.setHours(12, 0, 0, 0);
   if (!days.has(dayKey(d.getTime()))) d.setDate(d.getDate() - 1); // hoy aún no cuenta: la racha sigue viva
   let n = 0;
   while (days.has(dayKey(d.getTime()))) { n++; d.setDate(d.getDate() - 1); }
@@ -241,7 +352,7 @@ function streak() {
 }
 
 /* ---------- acciones ---------- */
-function commit() { save(); renderAll(); }
+function commit() { save(); renderAll(); scheduleTick(); }
 
 // Feedback visual discreto: entrada de lo nuevo, salida de lo que se borra, destello de lo que cambió.
 let enter = null; // { pid, list } — el próximo render anima la entrada de ese proyecto
@@ -281,10 +392,11 @@ function createProject() {
 }
 
 function startTimer(p) {
+  const t = now(); // un solo instante: si otro proyecto corría, termina exactamente donde empieza este
   const a = activeSession();
-  if (a) a.s.end = now();
+  if (a) a.s.end = t;
   setAway(null);
-  p.sessions.push({ id: uid(), start: now(), end: null, round: isDone(p) ? null : p.currentRound });
+  p.sessions.push({ id: uid(), start: t, end: null, round: isDone(p) ? null : p.currentRound });
 }
 function stopTimer() { const a = activeSession(); if (a) a.s.end = now(); setAway(null); }
 function toggleTimer(p) {
@@ -317,6 +429,9 @@ function deductTime(p, min, btn) {
   const ms = Math.min(min * 60000, sessionMs(s));
   if (ms < 1000) { sfx('error'); toast('Esta sesión no tiene tiempo para descontar.'); return; }
   const pt = btn ? centerOf(btn) : null;
+  // Se registra cuándo: el descuento ocupa los minutos justo antes (o antes del fin, si la sesión ya terminó).
+  if (!s.deductions && s.deducted) s.deductions = [{ at: s.end ?? now(), ms: s.deducted }]; // dato viejo sin detalle
+  s.deductions = [...(s.deductions || []), { at: s.end ?? now(), ms }];
   s.deducted = (s.deducted || 0) + ms;
   lastDeduct = { pid: p.id, sid: s.id, ms };
   commit();
@@ -333,6 +448,10 @@ function undoDeduct() {
   if (!s) { commit(); return; }
   s.deducted = Math.max(0, (s.deducted || 0) - d.ms);
   if (!s.deducted) delete s.deducted;
+  if (Array.isArray(s.deductions)) { // quita el último descuento de esa cantidad
+    for (let i = s.deductions.length - 1; i >= 0; i--) if (s.deductions[i].ms === d.ms) { s.deductions.splice(i, 1); break; }
+    if (!s.deductions.length || !s.deducted) delete s.deductions;
+  }
   commit();
   sfx('undo');
   toast(`Descuento deshecho: +${fmtAmount(d.ms)}.`);
@@ -563,7 +682,7 @@ const gallery = { handle: null, name: '', sources: [], status: 'none' }; // none
 const idb = {
   open() {
     return new Promise((res, rej) => {
-      const r = indexedDB.open('clock-management', 1);
+      const r = indexedDB.open(NS, 1);
       r.onupgradeneeded = () => r.result.createObjectStore('kv');
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
@@ -710,13 +829,16 @@ async function showLevelImage(lvl, { manual = false, mode = 'new' } = {}) {
 }
 
 /* --- tiempo que corrió con la página cerrada --- */
-function detectAway() {
+// Sirve al abrir la página y también si la computadora se suspendió con la página abierta.
+function detectAway(last = readSeen()) {
   const a = activeSession();
-  const last = state.lastSeen;
+  if (away && a && away.sid === a.s.id) return false; // ya hay un aviso pendiente de esa sesión: se respeta el primero
   if (a && last && last > a.s.start && now() - last > AWAY_THRESHOLD) {
     setAway({ pid: a.p.id, sid: a.s.id, from: last });
     state.selectedId = a.p.id;
+    return true;
   }
+  return false;
 }
 function resolveAway(mode) {
   if (!away) return;
@@ -742,7 +864,7 @@ function debugPaceText() {
   return `${esc(a.p.name)}: ${fmtShort(pc.minutes * 60000)} de ritmo · ${pc.label} ×${pc.mult} · ${needsHold(a.p) ? `pausa sostenida ${fmtSec(pc.hold)}` : 'pausa libre'}`;
 }
 // El panel de debug es preferencia de este navegador (no va en los datos), igual en modo real o de prueba.
-const DEBUG_PANEL_KEY = 'clock-management:debug-panel';
+const DEBUG_PANEL_KEY = `${NS}:debug-panel`;
 let debugPanel = false;
 try { debugPanel = localStorage.getItem(DEBUG_PANEL_KEY) === '1'; } catch { /* sin storage */ }
 function setDebugPanel(on) {
@@ -785,6 +907,10 @@ function renderDebug() {
       <span class="debug-label">Tramos</span>
       <span class="debug-note">${PACE.map((t) => `${t.min} min · ${t.label} ×${t.mult} · ${t.hold ? `pausa ${fmtSec(t.hold)}` : 'pausa libre'}`).join(' / ')}</span>
     </div>
+    <div class="debug-row">
+      <span class="debug-label">Versión</span>
+      <span class="debug-note">${APP_VERSION} · pruebas automáticas en <a href="tests/" target="_blank" rel="noopener">tests/</a></span>
+    </div>
     ${debugMode ? `
     <div class="debug-row">
       <span class="debug-label">Datos de prueba</span>
@@ -796,7 +922,10 @@ function switchMode(on) {
   save();
   frozen = true; // que el pagehide no escriba encima al recargar
   try {
-    if (on && !localStorage.getItem(DEBUG_KEY)) localStorage.setItem(DEBUG_KEY, localStorage.getItem(STORAGE_KEY) || '');
+    if (on && !localStorage.getItem(DEBUG_KEY)) {
+      localStorage.setItem(DEBUG_KEY, localStorage.getItem(STORAGE_KEY) || '');
+      localStorage.setItem(`${NS}:debug-seen`, String(Date.now())); // copia recién hecha: sin "ausencia" falsa
+    }
     localStorage.setItem(MODE_KEY, on ? 'debug' : 'real');
   } catch { /* sin storage */ }
   location.reload();
@@ -804,7 +933,10 @@ function switchMode(on) {
 function resetDebug(copyReal) {
   if (!debugMode) return;
   frozen = true;
-  try { localStorage.setItem(DEBUG_KEY, copyReal ? localStorage.getItem(STORAGE_KEY) || '' : ''); } catch { /* sin storage */ }
+  try {
+    localStorage.setItem(DEBUG_KEY, copyReal ? localStorage.getItem(STORAGE_KEY) || '' : '');
+    localStorage.setItem(`${NS}:debug-seen`, String(Date.now()));
+  } catch { /* sin storage */ }
   location.reload();
 }
 function warp(min) {
@@ -828,12 +960,11 @@ function addDebugXp(amount) {
 function simulateAway(min) {
   if (!debugMode) return;
   if (!activeSession()) { sfx('error'); toast('Primero inicia un cronómetro.'); return; }
-  save();
-  const last = state.lastSeen;
+  touchSeen();
+  const last = readSeen(); // la página "deja de estar abierta" aquí
   state.debugOffset = (state.debugOffset || 0) + min * 60000;
   timeOffset = state.debugOffset;
-  state.lastSeen = last; // la página "no estuvo abierta" durante ese lapso
-  detectAway();
+  detectAway(last);
   commit();
   if (away) toast('Un cronómetro siguió corriendo mientras no estabas.');
 }
@@ -1098,7 +1229,40 @@ function renderSessions(p) {
 }
 
 let paceSeen = null; // { pid, idx } — para detectar cuando subes de ritmo
+
+// Si entre un refresco y otro pasaron más de 10 min de reloj real, la computadora se suspendió
+// (o el navegador congeló la pestaña) con el cronómetro corriendo: se pregunta igual que al reabrir.
+let lastBeat = Date.now();
+function checkSleep() {
+  const real = Date.now();
+  const gap = real - lastBeat;
+  lastBeat = real;
+  if (gap <= AWAY_THRESHOLD || !detectAway()) return false;
+  save();
+  renderAll();
+  toast('El cronómetro siguió corriendo mientras la computadora estaba suspendida.');
+  return true;
+}
+
+// El refresco se programa para justo después de que cambie el siguiente segundo de lo que estás viendo,
+// así el reloj en pantalla nunca va atrasado.
+let tickTimer = 0;
+function scheduleTick() {
+  clearTimeout(tickTimer);
+  let delay = 1000;
+  const a = activeSession();
+  if (a) {
+    const n = now();
+    const watched = [projectTime(a.p), roundTime(a.p, a.p.currentRound), todayMs(), sessionMs(a.s, n)];
+    const pc = pace(a.p);
+    if (pc) watched.push(pc.minutes * 60000);
+    delay = Math.min(...watched.map((v) => 1000 - (v % 1000))) + 4;
+  }
+  tickTimer = setTimeout(() => { tick(); scheduleTick(); }, Math.min(Math.max(delay, 15), 1000));
+}
+
 function tick() {
+  if (checkSleep()) return;
   $$('[data-timer]').forEach((e) => {
     const p = getProject(e.dataset.timer);
     if (!p) return;
@@ -1486,11 +1650,11 @@ $('#mExport').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `clock-management-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `clock-management-${debugMode ? 'PRUEBA-' : ''}${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   sfx('save');
-  toast(`Respaldo descargado: ${a.download}`);
+  toast(debugMode ? `Respaldo del modo prueba descargado: ${a.download}` : `Respaldo descargado: ${a.download}`);
 });
 $('#fileImport').addEventListener('change', async (e) => {
   closeMenu();
@@ -1499,8 +1663,13 @@ $('#fileImport').addEventListener('change', async (e) => {
   if (!f) return;
   try {
     const data = JSON.parse(await f.text());
-    if (!Array.isArray(data.projects)) throw new Error('formato');
-    if (!(await ask('Importar respaldo', `Se cargan ${data.projects.length} proyecto(s) y se reemplazan los datos actuales.`, 'Importar', true))) return;
+    if (!data || !Array.isArray(data.projects)) throw new Error('formato');
+    // Un respaldo hecho en modo prueba trae horas adelantadas: se avisa antes de mezclarlo con lo real.
+    const fromTest = !debugMode && (isNum(data.debugOffset) || isNum(data.debugXp));
+    const msg = fromTest
+      ? `Este archivo viene del modo prueba${data.debugOffset ? ` (reloj adelantado ${fmtShort(data.debugOffset)})` : ''}: sus horas no coinciden con las reales. Se cargarían ${data.projects.length} proyecto(s) y se reemplazarían tus datos actuales.`
+      : `Se cargan ${data.projects.length} proyecto(s) y se reemplazan los datos actuales.`;
+    if (!(await ask(fromTest ? 'Respaldo del modo prueba' : 'Importar respaldo', msg, fromTest ? 'Importar igual' : 'Importar', true))) return;
     state = normalize(data);
     applyTheme();
     setAway(null);
@@ -1623,15 +1792,44 @@ $('#tplSave').addEventListener('click', () => {
 applyTheme();
 initGallery();
 away = state.away || null;
-detectAway();
+if (detectAway()) save(); // el aviso se guarda: si recargas sin contestarlo, sigue ahí
 if (!selected() && state.projects.length) state.selectedId = state.projects[0].id;
 renderAll();
 if (away) toast('Un cronómetro siguió corriendo mientras no estabas.');
-setInterval(tick, 1000);
-// Marca de "página abierta" cada 15 s: así sabemos cuándo se cerró el navegador.
-setInterval(save, 15000);
-addEventListener('pagehide', save);
-document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
-try { localStorage.removeItem('clock-management:debug-open'); } catch { /* llave vieja, ya no se usa */ }
+scheduleTick();
+// Marca de "página abierta" cada 15 s (en su propia llave): así sabemos cuándo se cerró el navegador.
+touchSeen();
+setInterval(touchSeen, 15000);
+addEventListener('pagehide', touchSeen);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) touchSeen();
+  else { tick(); scheduleTick(); } // al volver a la pestaña, el reloj se pone al día de inmediato
+});
+
+// Varias pestañas abiertas: cuando otra guarda cambios, esta los adopta (y no los pisa).
+addEventListener('storage', (e) => {
+  if (frozen || e.key !== storageKey() || !e.newValue) return;
+  let next;
+  try { next = normalize(JSON.parse(e.newValue)); } catch { return; }
+  const keepSel = state.selectedId;
+  state = next;
+  if (keepSel && getProject(keepSel)) state.selectedId = keepSel; // cada pestaña sigue viendo su proyecto
+  if (debugMode) timeOffset = state.debugOffset || 0;
+  away = state.away || null;
+  // Conserva el foco y lo que estés escribiendo en esta pestaña.
+  const f = document.activeElement;
+  const fid = f && f.id;
+  const val = f && 'value' in f ? f.value : null;
+  const [s0, s1] = f && 'selectionStart' in f ? [f.selectionStart, f.selectionEnd] : [null, null];
+  renderAll();
+  scheduleTick();
+  const g = fid && document.getElementById(fid);
+  if (g && g !== f) {
+    if (val != null && fid !== 'projName') g.value = val;
+    g.focus();
+    try { if (s0 != null) g.setSelectionRange(s0, s1); } catch { /* no aplica */ }
+  }
+});
+try { localStorage.removeItem(`${NS}:debug-open`); } catch { /* llave vieja, ya no se usa */ }
 // Enter dentro de los diálogos no debe cerrarlos sin guardar.
 $$('dialog form').forEach((f) => f.addEventListener('submit', (e) => e.preventDefault()));
