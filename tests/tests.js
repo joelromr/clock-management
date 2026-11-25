@@ -70,9 +70,12 @@ function attach(app) {
   app.$$ = (s) => [...w.document.querySelectorAll(s)];
   return app;
 }
-async function openApp({ seed, seen, mode, keep = false } = {}) {
+// Sin `seed`, la app arranca con una plantilla de 3 rondas (la que usan casi todas las pruebas);
+// con `fresh: true` arranca de cero, como alguien que la abre por primera vez.
+async function openApp({ seed, seen, mode, keep = false, fresh = false } = {}) {
   if (!keep) clearNS();
   if (seed !== undefined) localStorage.setItem(`${NS}:v1`, typeof seed === 'string' ? seed : JSON.stringify(seed));
+  else if (!keep && !fresh) localStorage.setItem(`${NS}:v1`, JSON.stringify(makeState()));
   if (seen != null) localStorage.setItem(`${NS}:seen`, String(seen));
   if (mode) localStorage.setItem(`${NS}:mode`, mode);
   const f = document.createElement('iframe');
@@ -545,6 +548,21 @@ test('Plantillas: crear, predeterminada y cambiar la de un proyecto', async ({ o
   eq(X.projectTime(p), 5 * MIN, 'El tiempo se conserva');
   check(X.isRunning(p), 'Y el reloj sigue');
   check(p.rounds.every((r) => r.steps.every((s) => !s.doneAt)), 'El avance se reinicia');
+});
+
+test('Empezar de cero: plantilla mínima (una ronda, dos pasos)', async ({ open }) => {
+  const app = await open({ fresh: true });
+  const { X } = app;
+  const t = X.state.settings.templates;
+  eq(t.length, 1, 'Una sola plantilla');
+  eq(t[0].name, 'Plantilla 1', 'Se llama "Plantilla 1"');
+  eq(JSON.stringify(t[0].rounds), JSON.stringify([{ short: '01', name: 'Ronda 01', steps: ['Paso 01', 'Paso 02'] }]), 'Una ronda con dos pasos');
+  check(!JSON.stringify(X.state).includes('Evaluación'), 'Nada de "Evaluación A / B"');
+  X.createProject();
+  eq(X.selected().rounds.length, 1, 'Un proyecto nuevo la usa');
+  X.openTemplates();
+  app.$('#tplNew').click();
+  eq(JSON.stringify(X.twCurrent().rounds), JSON.stringify(t[0].rounds), '"Nueva" usa el mismo punto de partida');
 });
 
 test('Editor de plantillas: lista + detalle, pegar, reordenar y modo texto', async ({ open }) => {

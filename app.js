@@ -47,11 +47,9 @@ let timeOffset = 0; // ms que se adelantó el reloj (solo en modo prueba)
 let frozen = false; // true justo antes de recargar al cambiar de modo, para no sobrescribir
 
 const DEFAULT_TPL_ID = 'tpl-default';
-const DEFAULT_ROUNDS = [
-  { short: 'A', name: 'Evaluación A', steps: ['Preparar material', 'Evaluar', 'Registrar resultados'] },
-  { short: 'B', name: 'Evaluación B', steps: ['Preparar material', 'Evaluar', 'Registrar resultados'] },
-  { short: 'A+B', name: 'Evaluación combinada', steps: ['Comparar A vs B', 'Conciliar diferencias', 'Resultado final'] },
-];
+const DEFAULT_TPL_NAME = 'Plantilla 1';
+// Punto de partida mínimo (al empezar de cero y con "Nueva"): una ronda con dos pasos.
+const DEFAULT_ROUNDS = [{ short: '01', name: 'Ronda 01', steps: ['Paso 01', 'Paso 02'] }];
 
 /* ---------- utilidades ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -91,7 +89,7 @@ function freshState() {
     version: 2, projects: [], selectedId: null, lastSeen: null, away: null,
     settings: {
       sound: true, theme: 'system', friction: true, levelImages: false,
-      templates: [{ id: DEFAULT_TPL_ID, name: 'Evaluación A / B / combinada', rounds: clone(DEFAULT_ROUNDS) }],
+      templates: [{ id: DEFAULT_TPL_ID, name: DEFAULT_TPL_NAME, rounds: clone(DEFAULT_ROUNDS) }],
       defaultTemplateId: DEFAULT_TPL_ID,
     },
   };
@@ -142,7 +140,7 @@ function normalize(s) {
   const migrating = !Array.isArray(st.templates) || !st.templates.length;
   if (migrating) {
     const rounds = Array.isArray(old.template) && old.template.length ? old.template : clone(DEFAULT_ROUNDS);
-    st.templates = [{ id: DEFAULT_TPL_ID, name: 'Evaluación A / B / combinada', rounds }];
+    st.templates = [{ id: DEFAULT_TPL_ID, name: Array.isArray(old.template) && old.template.length ? 'Evaluación A / B / combinada' : DEFAULT_TPL_NAME, rounds }];
     st.defaultTemplateId = DEFAULT_TPL_ID;
   }
   st.templates = st.templates.filter((t) => t && typeof t === 'object')
@@ -1946,7 +1944,7 @@ $('#tplName').addEventListener('input', (e) => {
 $('#tplNew').addEventListener('click', () => {
   if (!settleEditor()) return;
   // Punto de partida mínimo: una ronda con dos pasos, para crecer con "Duplicar ronda".
-  const t = { id: uid(), name: `Plantilla ${tw.templates.length + 1}`, rounds: [{ short: '01', name: 'Ronda 01', steps: ['Paso 01', 'Paso 02'] }] };
+  const t = { id: uid(), name: `Plantilla ${tw.templates.length + 1}`, rounds: clone(DEFAULT_ROUNDS) };
   tw.templates.push(t);
   tw.editId = t.id; tw.ri = 0;
   renderTplDialog();

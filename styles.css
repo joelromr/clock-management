@@ -645,7 +645,16 @@ dialog.tpl-dlg {
 }
 .tpl-shell { display: flex; flex-direction: column; height: 100%; }
 .tpl-head { padding: 18px 24px 0; display: grid; gap: 6px; }
-.tpl-head .tpl-bar { margin: 0; }
+.tpl-head .tpl-bar { margin: 0; align-items: stretch; }
+/* Selector y botones de la misma altura y el mismo trazo */
+.tpl-head .tpl-bar select, .tpl-head .tpl-bar .btn { height: 36px; box-sizing: border-box; }
+.tpl-head .tpl-bar select {
+  padding: 0 10px; border: 1.5px solid var(--ink); border-radius: var(--r);
+  font: 600 14px var(--f-mono); background: var(--sheet); color: var(--ink); cursor: pointer;
+}
+.tpl-head .tpl-bar select:hover { background: var(--rule-soft); }
+.tpl-head .tpl-bar .btn { padding: 0 12px; font-size: 13px; }
+.tpl-head h2 { align-self: center; }
 .tpl-head h2 { font: 700 26px/1 var(--f-display); text-transform: uppercase; margin-right: 8px; }
 .tpl-head .tpl-meta { border-top: 0; padding: 4px 0 12px; }
 .tpl-body { flex: 1; min-height: 0; border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); }
