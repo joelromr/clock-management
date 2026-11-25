@@ -9,17 +9,17 @@ const STORAGE_KEY = 'clock-management:v1';
 const XP = { step: 10, round: 50, project: 200 };
 const XP_PER_LEVEL = 500;
 const AWAY_THRESHOLD = 10 * 60 * 1000; // a partir de 10 min sin la página abierta, preguntamos
-const HOLD_MS = 1300;                   // cuánto hay que mantener "Pausar" cuando llevas ritmo
 
 // Ritmo: minutos seguidos sin pausar → multiplicador de XP.
-// Meta: tramos de 2 h sin pausa. Entre 30 min y la meta, pausar pide mantener presionado;
-// después de la meta la pausa es libre ("pit stop merecido").
+// Meta: tramos de 2 h sin pausa. `hold` = ms que hay que mantener "Pausar" en ese tramo:
+// crece mientras más ritmo llevas (máximo entre 1 h 30 y 2 h). Antes de 30 min y después
+// de la meta la pausa es libre (después de la meta cuenta como "pit stop merecido").
 const PACE = [
-  { min: 0, mult: 1, label: 'Calentando' },
-  { min: 30, mult: 1.5, label: 'En ritmo' },
-  { min: 60, mult: 2, label: 'A fondo' },
-  { min: 90, mult: 2.5, label: 'Vuelta rápida' },
-  { min: 120, mult: 3, label: 'Tramo completo' },
+  { min: 0, mult: 1, label: 'Calentando', hold: 0 },
+  { min: 30, mult: 1.5, label: 'En ritmo', hold: 1000 },
+  { min: 60, mult: 2, label: 'A fondo', hold: 1800 },
+  { min: 90, mult: 2.5, label: 'Vuelta rápida', hold: 2600 },
+  { min: 120, mult: 3, label: 'Tramo completo', hold: 0 },
 ];
 const GOAL_MIN = PACE[PACE.length - 1].min;
 
@@ -282,10 +282,14 @@ function splitRunningSession(p) {
 
 /* --- pausa sostenida --- */
 let holdTimer = null, holdDoneAt = 0;
+const holdMs = (p) => pace(p)?.hold || 0;
+const fmtSec = (ms) => `${(ms / 1000).toFixed(1).replace(/\.0$/, '')} s`;
 function startHold(p) {
   if (holdTimer) return;
-  $('.play')?.classList.add('holding');
-  holdTimer = setTimeout(() => { holdTimer = null; holdDoneAt = now(); pauseWithLoss(p); }, HOLD_MS);
+  const ms = holdMs(p);
+  const btn = $('.play');
+  if (btn) { btn.style.setProperty('--hold', `${ms}ms`); btn.classList.add('holding'); }
+  holdTimer = setTimeout(() => { holdTimer = null; holdDoneAt = now(); pauseWithLoss(p); }, ms);
 }
 function cancelHold() {
   if (!holdTimer) return;
@@ -296,7 +300,7 @@ function cancelHold() {
 }
 function holdHint() {
   const pc = pace(selected());
-  if (pc) toast(`Mantén presionado para pausar. Perderías el ritmo ×${pc.mult} (${Math.floor(pc.minutes)} min seguidos).`);
+  if (pc) toast(`Mantén presionado ${fmtSec(pc.hold)} para pausar. Perderías el ritmo ×${pc.mult} (${Math.floor(pc.minutes)} min seguidos).`);
 }
 function pauseWithLoss(p) {
   const pc = pace(p);
@@ -458,7 +462,7 @@ function debugPaceText() {
   const a = activeSession();
   if (!a) return 'Ningún cronómetro corriendo.';
   const pc = pace(a.p);
-  return `${esc(a.p.name)}: ${Math.floor(pc.minutes)} min seguidos · ${pc.label} ×${pc.mult} · ${needsHold(a.p) ? 'pausa sostenida' : 'pausa libre'}`;
+  return `${esc(a.p.name)}: ${Math.floor(pc.minutes)} min seguidos · ${pc.label} ×${pc.mult} · ${needsHold(a.p) ? `pausa sostenida ${fmtSec(pc.hold)}` : 'pausa libre'}`;
 }
 function renderDebug() {
   $('#debugBanner').hidden = !debugMode;
@@ -484,7 +488,7 @@ function renderDebug() {
     </div>
     <div class="debug-row">
       <span class="debug-label">Tramos</span>
-      <span class="debug-note">${PACE.map((t) => `${t.min} min · ${t.label} ×${t.mult}`).join(' / ')}. Pausa sostenida entre ${PACE[1].min} y ${GOAL_MIN} min.</span>
+      <span class="debug-note">${PACE.map((t) => `${t.min} min · ${t.label} ×${t.mult} · ${t.hold ? `pausa ${fmtSec(t.hold)}` : 'pausa libre'}`).join(' / ')}</span>
     </div>
     ${debugMode ? `
     <div class="debug-row">
@@ -630,7 +634,7 @@ function renderMain() {
   const running = isRunning(p), done = isDone(p), cur = p.rounds[p.currentRound];
   const hold = needsHold(p);
   const playLabel = running
-    ? `<span class="play-main"><span class="bars"></span>Pausar</span>${hold ? '<small class="hold-hint">mantén presionado</small>' : ''}`
+    ? `<span class="play-main"><span class="bars"></span>Pausar</span>${hold ? `<small class="hold-hint">mantén ${fmtSec(holdMs(p))}</small>` : ''}`
     : '<span class="play-main"><span class="tri"></span>Iniciar</span>';
   m.innerHTML = `
     <section class="head">

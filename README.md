@@ -34,7 +34,7 @@ Luego entra a <http://localhost:5173>.
   | 2 h o más | Tramo completo | ×3 |
 
   La meta es un tramo de 2 h sin pausa (en una jornada de 4.5–5 h, ~2 tramos). Cambiar de ronda no rompe el ritmo; pausar sí.
-- **Pausa con fricción**: entre 30 min y 2 h, *Pausar* (o `Espacio`) hay que mantenerlo presionado ~1.3 s. Un clic corto solo te avisa qué perderías. Después de 2 h la pausa es libre: "pit stop merecido". Se puede apagar en el menú.
+- **Pausa con fricción**: entre 30 min y 2 h, *Pausar* (o `Espacio`) hay que mantenerlo presionado, y cuesta más mientras más ritmo llevas: 1 s (En ritmo), 1.8 s (A fondo), 2.6 s (Vuelta rápida). Un clic corto solo te avisa qué perderías. Después de 2 h la pausa es libre: "pit stop merecido". Se puede apagar en el menú.
 - **Debug** (footer, al final de la página): *modo prueba* con datos aparte (copia de los reales), reloj simulado (+1 min, +10 min, +30 min, +1 h), simular navegador cerrado 15 min, y reiniciar la prueba. Una banda amarilla arriba indica que estás en modo prueba.
 - **XP**: paso 10 × ritmo, ronda 50 × ritmo, proyecto 200. Nivel cada 500 XP.
 - **Barra superior**: tiempo de hoy, logros de hoy, racha de días y nivel.

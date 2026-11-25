@@ -478,7 +478,7 @@ dialog::backdrop { background: color-mix(in srgb, var(--paper) 70%, transparent)
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 0;
   background: color-mix(in srgb, var(--stop) 55%, transparent);
 }
-.play.holding::after { width: 100%; transition: width 1.3s linear; }
+.play.holding::after { width: 100%; transition: width var(--hold, 1.3s) linear; }
 .timer.broke { animation: shake .45s cubic-bezier(.36, .07, .19, .97); }
 .timer.broke .pace-bar { border-color: var(--stop); }
 @keyframes shake {
