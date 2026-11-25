@@ -39,6 +39,8 @@
           <hr>
           <button class="menu-item" id="mExport" role="menuitem"><span>Exportar respaldo</span><b>JSON</b></button>
           <label class="menu-item" role="menuitem" for="fileImport"><span>Importar respaldo</span><b>JSON</b><input type="file" id="fileImport" accept="application/json" hidden></label>
+          <hr>
+          <button class="menu-item" id="mDebug" role="menuitem" title="Muestra el panel de debug al final de la página"><span>Debug</span><b></b></button>
         </div>
       </div>
     </div>
@@ -53,11 +55,9 @@
     <main id="main"></main>
   </div>
 
-  <footer class="debug">
-    <details id="debugDetails">
-      <summary>Debug</summary>
-      <div class="debug-body" id="debugBody"></div>
-    </details>
+  <footer class="debug" id="debugFooter" hidden>
+    <div class="debug-head">Debug</div>
+    <div class="debug-body" id="debugBody"></div>
   </footer>
 
   <dialog id="dlgTemplate" class="dlg dlg-wide">

@@ -479,14 +479,56 @@ dialog::backdrop { background: color-mix(in srgb, var(--paper) 70%, transparent)
   background: color-mix(in srgb, var(--stop) 55%, transparent);
 }
 .play.holding::after { width: 100%; transition: width var(--hold, 1.3s) linear; }
-.timer.broke { animation: shake .45s cubic-bezier(.36, .07, .19, .97); }
-.timer.broke .pace-bar { border-color: var(--stop); }
+/* La barra roja al sostener se intensifica con el tramo */
+.play.hold-1::after { background: color-mix(in srgb, var(--stop) 38%, transparent); }
+.play.hold-2::after { background: color-mix(in srgb, var(--stop) 55%, transparent); }
+.play.hold-3::after { background: color-mix(in srgb, var(--stop) 75%, transparent); }
+.play.hold-3 { box-shadow: 0 0 0 2px color-mix(in srgb, var(--stop) 45%, transparent); }
+
+/* Al pausar con ritmo: el golpe crece con el tramo */
+.timer.broke-1 { animation: nudge .32s ease-out; }
+.timer.broke-2 { animation: shake .45s cubic-bezier(.36, .07, .19, .97); }
+.timer.broke-3 { animation: shake-hard .6s cubic-bezier(.36, .07, .19, .97); border-color: var(--stop); }
+.timer.broke-2 .pace-bar, .timer.broke-3 .pace-bar { border-color: var(--stop); }
+.timer.broke-3 .clock { color: var(--stop); transition: color 1.2s ease; }
+@keyframes nudge { 30% { transform: translateX(-3px); } 65% { transform: translateX(2px); } }
 @keyframes shake {
   10%, 90% { transform: translateX(-2px); }
   20%, 80% { transform: translateX(4px); }
   30%, 50%, 70% { transform: translateX(-7px); }
   40%, 60% { transform: translateX(7px); }
 }
+@keyframes shake-hard {
+  10%, 90% { transform: translate(-3px, 1px); }
+  20%, 80% { transform: translate(6px, -1px); }
+  30%, 50%, 70% { transform: translate(-11px, 1px); }
+  40%, 60% { transform: translate(11px, -1px); }
+}
+.vignette {
+  position: fixed; inset: 0; z-index: 45; pointer-events: none;
+  box-shadow: inset 0 0 140px 40px color-mix(in srgb, var(--stop) 55%, transparent);
+  animation: vignette .95s ease-out forwards;
+}
+@keyframes vignette { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Feedback general: entra lo nuevo, sale lo borrado, destella lo que cambió */
+main.enter > * { animation: rise .32s cubic-bezier(.2, .8, .2, 1) both; }
+main.enter > *:nth-child(2) { animation-delay: 30ms; }
+main.enter > *:nth-child(3) { animation-delay: 60ms; }
+main.enter > *:nth-child(n+4) { animation-delay: 90ms; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+#main.leaving { opacity: 0; transform: translateY(6px); transition: opacity .2s ease, transform .2s ease; }
+.proj.leaving, .step.leaving, tr.leaving { opacity: 0; transform: translateX(-14px); transition: opacity .2s ease, transform .2s ease; }
+.proj.arrive { animation: arrive .7s cubic-bezier(.2, .8, .2, 1); }
+@keyframes arrive {
+  0% { opacity: 0; transform: translateX(-14px); background: var(--signal); color: var(--on-signal); }
+  40% { opacity: 1; transform: none; background: var(--signal); color: var(--on-signal); }
+}
+.step.added { animation: rise .3s cubic-bezier(.2, .8, .2, 1); }
+.flash { animation: flash .6s ease-out; }
+@keyframes flash { 0% { box-shadow: 0 0 0 3px var(--signal); } 100% { box-shadow: 0 0 0 3px transparent; } }
+.menu { animation: drop .14s ease-out; }
+@keyframes drop { from { opacity: 0; transform: translateY(-4px); } }
 .float-xp.boosted { background: var(--go); color: var(--sheet); border-color: var(--ink); font-size: 14px; }
 
 /* Diálogo de plantillas */
@@ -554,8 +596,8 @@ dialog::backdrop { background: color-mix(in srgb, var(--paper) 70%, transparent)
 
 /* Footer de debug y banda de modo prueba */
 .debug { border-top: 1.5px solid var(--ink); background: var(--sheet); padding: 0 20px; }
-.debug summary {
-  cursor: pointer; padding: 12px 0; font: 600 12px var(--f-mono);
+.debug-head {
+  padding: 14px 0 10px; font: 600 12px var(--f-mono);
   text-transform: uppercase; letter-spacing: .14em; color: var(--ink-2);
 }
 .debug-body { display: grid; gap: 12px; padding: 4px 0 22px; }

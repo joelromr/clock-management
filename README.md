@@ -34,14 +34,15 @@ Luego entra a <http://localhost:5173>.
   | 2 h o más | Tramo completo | ×3 |
 
   La meta es un tramo de 2 h sin pausa (en una jornada de 4.5–5 h, ~2 tramos). Cambiar de ronda no rompe el ritmo; pausar sí.
-- **Pausa con fricción**: entre 30 min y 2 h, *Pausar* (o `Espacio`) hay que mantenerlo presionado, y cuesta más mientras más ritmo llevas: 1 s (En ritmo), 1.8 s (A fondo), 2.6 s (Vuelta rápida). Un clic corto solo te avisa qué perderías. Después de 2 h la pausa es libre: "pit stop merecido". Se puede apagar en el menú.
+- **Pausa con fricción**: entre 30 min y 2 h, *Pausar* (o `Espacio`) hay que mantenerlo presionado, y cuesta más mientras más ritmo llevas: 1 s (En ritmo), 1.8 s (A fondo), 2.6 s (Vuelta rápida). Un clic corto solo te avisa qué perderías. Mientras sostienes suena un latido (más rápido en tramos altos). Si pausas, el golpe crece con el tramo: empujón suave (30–60 min), sacudida (60–90), sacudida fuerte con destello rojo y "estabas a N min del tramo completo" (90–120). Después de 2 h la pausa es libre: "pit stop merecido". Se puede apagar en el menú.
 - **Imágenes de nivel** (apagadas por defecto; *Menú → Imágenes de nivel*): eliges una carpeta de tu computadora y, al subir de nivel, se desbloquea una imagen al azar (distinta a la anterior) en un marco de "foto de llegada" con obturador y flash. Respeta cualquier proporción. Esa imagen queda fija para el nivel: clic en el nivel (barra superior) la vuelve a mostrar. Para recordarla solo se guarda su ruta dentro de la carpeta. Se empieza en nivel 0: la primera imagen se gana al llegar a nivel 1.
   - Las imágenes **nunca se copian ni se suben**: se leen del disco al momento y se muestran desde memoria. Solo se guarda una referencia a la carpeta (IndexedDB) para no pedirla cada vez; *Olvidar carpeta* la borra.
   - Chrome/Edge recuerdan la carpeta (pueden pedir un clic de permiso al volver). Firefox/Safari no tienen esa API: ahí la eliges cada sesión.
-- **Debug** (footer, al final de la página): *modo prueba* con datos aparte (copia de los reales), reloj simulado (+1 min, +10 min, +30 min, +1 h), simular navegador cerrado 15 min, +50 XP y "Subir de nivel" (corren el flujo real, imagen incluida), y reiniciar la prueba. Una banda amarilla arriba indica que estás en modo prueba.
+- **Debug** (*Menú → Debug*, al final del menú; el panel aparece desplegado al final de la página): *modo prueba* con datos aparte (copia de los reales), reloj simulado (+1 min, +10 min, +30 min, +1 h), simular navegador cerrado 15 min, +50 XP y "Subir de nivel" (corren el flujo real, imagen incluida), y reiniciar la prueba. Una banda amarilla arriba indica que estás en modo prueba.
 - **XP**: paso 10 × ritmo, ronda 50 × ritmo, proyecto 200. Nivel cada 500 XP, empezando en nivel 0.
 - **Barra superior**: tiempo de hoy, logros de hoy, racha de días y nivel.
-- **Menú**: sonido, tema (sistema / claro / oscuro), pausa con fricción, exportar e importar respaldo.
+- **Menú**: sonido, tema (sistema / claro / oscuro), pausa con fricción, imágenes de nivel, exportar e importar respaldo y, al final, debug.
+- **Feedback**: cada acción tiene un sonido corto y una animación discreta (crear, borrar, agregar o quitar pasos, reabrir, cambiar plantilla, interruptores, exportar, errores).
 - **Confirmaciones** en un diálogo propio de la página (Esc cancela).
 - **Sesiones**: historial de cada arranque/pausa con su ronda.
 

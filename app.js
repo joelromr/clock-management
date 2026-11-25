@@ -120,7 +120,7 @@ function save() {
 let state = normalize(load());
 if (debugMode) timeOffset = state.debugOffset || 0;
 let flash = null;   // { pid, ri?, sid? } — qué animar en el próximo render
-let broke = false;  // el próximo render sacude el reloj (se rompió el ritmo)
+let broke = 0;      // 1–3: el próximo render sacude el reloj según qué tan caro fue pausar
 let away = null;    // { pid, sid, from } — cronómetro que siguió corriendo con la página cerrada
 function setAway(v) { away = v; state.away = v; }
 
@@ -236,6 +236,21 @@ function streak() {
 /* ---------- acciones ---------- */
 function commit() { save(); renderAll(); }
 
+// Feedback visual discreto: entrada de lo nuevo, salida de lo que se borra, destello de lo que cambió.
+let enter = null; // { pid, list } — el próximo render anima la entrada de ese proyecto
+function leave(els, then) {
+  const list = els.filter(Boolean);
+  if (reduceMotion || !list.length) { then(); return; }
+  list.forEach((e) => e.classList.add('leaving'));
+  setTimeout(then, 220);
+}
+function flashEl(el) {
+  if (!el) return;
+  el.classList.remove('flash');
+  void el.offsetWidth; // reinicia la animación
+  el.classList.add('flash');
+}
+
 function createProject() {
   const tpl = defaultTemplate();
   const p = {
@@ -250,7 +265,10 @@ function createProject() {
   };
   state.projects.push(p);
   state.selectedId = p.id;
+  enter = { pid: p.id, list: true };
   commit();
+  enter = null;
+  sfx('create');
   toast('Proyecto creado. Dale Iniciar (o Espacio) cuando arranques.');
   requestAnimationFrame(() => { const i = $('#projName'); if (i) { i.focus(); i.select(); } });
 }
@@ -284,21 +302,30 @@ function splitRunningSession(p) {
 }
 
 /* --- pausa sostenida --- */
-let holdTimer = null, holdDoneAt = 0;
+// Mientras más ritmo llevas, más cuesta pausar: más tiempo sosteniendo, latido más rápido,
+// y al soltar la pausa el golpe es más fuerte (sonido, sacudida, mensaje).
+let holdTimer = null, holdBeat = null, holdDoneAt = 0;
 const holdMs = (p) => pace(p)?.hold || 0;
 const fmtSec = (ms) => `${(ms / 1000).toFixed(1).replace(/\.0$/, '')} s`;
+const BEAT_MS = [0, 340, 250, 170]; // latido mientras sostienes, por tramo
+function stopBeat() { clearInterval(holdBeat); holdBeat = null; }
 function startHold(p) {
   if (holdTimer) return;
-  const ms = holdMs(p);
+  const pc = pace(p);
+  const ms = pc.hold;
   const btn = $('.play');
   if (btn) { btn.style.setProperty('--hold', `${ms}ms`); btn.classList.add('holding'); }
-  holdTimer = setTimeout(() => { holdTimer = null; holdDoneAt = now(); pauseWithLoss(p); }, ms);
+  sfx('beat');
+  holdBeat = setInterval(() => sfx('beat'), BEAT_MS[pc.idx] || 300);
+  holdTimer = setTimeout(() => { holdTimer = null; stopBeat(); holdDoneAt = now(); pauseWithLoss(p); }, ms);
 }
 function cancelHold() {
   if (!holdTimer) return;
   clearTimeout(holdTimer);
   holdTimer = null;
+  stopBeat();
   $('.play')?.classList.remove('holding');
+  sfx('relief');
   holdHint();
 }
 function holdHint() {
@@ -307,12 +334,26 @@ function holdHint() {
 }
 function pauseWithLoss(p) {
   const pc = pace(p);
+  const sev = Math.min(Math.max(pc?.idx || 1, 1), 3); // 1: 30–60 · 2: 60–90 · 3: 90–120
   stopTimer();
-  sfx('break');
-  broke = true;
+  sfx(`break${sev}`);
+  broke = sev;
   commit();
-  broke = false;
-  if (pc) toast(`Pausa. Se rompió tu ritmo ×${pc.mult} tras ${Math.floor(pc.minutes)} min seguidos.`);
+  broke = 0;
+  if (sev === 3) vignette();
+  if (!pc) return;
+  const min = Math.floor(pc.minutes);
+  if (sev === 1) toast(`Pausa. Perdiste el ritmo ×${pc.mult} (${min} min).`);
+  else if (sev === 2) toast(`Se rompió tu ritmo ×${pc.mult} tras ${min} min seguidos.`);
+  else toast(`Se rompió una racha de ${fmtShort(pc.minutes * 60000)} ×${pc.mult}. Estabas a ${Math.max(1, Math.ceil(GOAL_MIN - pc.minutes))} min del tramo completo.`);
+}
+// Destello rojo en los bordes: solo para la pausa más cara.
+function vignette() {
+  if (reduceMotion) return;
+  const v = document.createElement('div');
+  v.className = 'vignette';
+  document.body.appendChild(v);
+  setTimeout(() => v.remove(), 1000);
 }
 
 function toggleStep(p, sid, el) {
@@ -320,7 +361,7 @@ function toggleStep(p, sid, el) {
   const r = p.rounds[p.currentRound];
   const st = r.steps.find((s) => s.id === sid);
   if (!st) return;
-  if (st.doneAt) { st.doneAt = null; delete st.xp; commit(); return; }
+  if (st.doneAt) { st.doneAt = null; delete st.xp; commit(); sfx('undo'); return; }
   const lvl = level();
   const mult = currentMult(p);
   const pt = el ? centerOf(el.querySelector('.check') || el) : screenCenter();
@@ -374,7 +415,11 @@ async function reopenRound(p, ri) {
   p.currentRound = ri;
   p.completedAt = null;
   splitRunningSession(p);
+  flash = { pid: p.id, ri };
   commit();
+  flash = null;
+  sfx('undo');
+  toast(`${r.name} reabierta.`);
 }
 
 async function applyTemplate(p, tplId) {
@@ -395,32 +440,52 @@ async function applyTemplate(p, tplId) {
   p.completedAt = null;
   p.templateId = tpl.id;
   if (running) p.sessions.push({ id: uid(), start: t, end: null, round: 0 });
+  enter = { pid: p.id };
   commit();
+  enter = null;
+  sfx('create');
   toast(`Plantilla aplicada: ${tpl.name}.`);
 }
 
 function addStep(p, text) {
   if (!p || isDone(p) || !text.trim()) return;
-  p.rounds[p.currentRound].steps.push({ id: uid(), text: text.trim(), doneAt: null });
+  const step = { id: uid(), text: text.trim(), doneAt: null };
+  p.rounds[p.currentRound].steps.push(step);
+  flash = { pid: p.id, added: step.id };
   commit();
+  flash = null;
+  sfx('tick');
   const i = $('.addstep input'); if (i) i.focus();
 }
 function removeStep(p, sid) {
-  const r = p.rounds[p.currentRound];
-  r.steps = r.steps.filter((s) => s.id !== sid);
-  commit();
+  sfx('remove');
+  leave([$(`.step[data-sid="${sid}"]`)], () => {
+    const r = p.rounds[p.currentRound];
+    r.steps = r.steps.filter((s) => s.id !== sid);
+    commit();
+  });
 }
 async function deleteProject(p) {
   if (!(await ask('Eliminar proyecto', `Se borra "${p.name}" con todo su tiempo registrado. No se puede deshacer.`, 'Eliminar', true))) return;
-  state.projects = state.projects.filter((x) => x !== p);
-  const next = state.projects.find((x) => !isDone(x)) || state.projects[0];
-  state.selectedId = next ? next.id : null;
-  commit();
+  sfx('remove');
+  leave([$(`.proj[data-id="${p.id}"]`), $('#main')], () => {
+    state.projects = state.projects.filter((x) => x !== p);
+    const next = state.projects.find((x) => !isDone(x)) || state.projects[0];
+    state.selectedId = next ? next.id : null;
+    if (next) enter = { pid: next.id };
+    commit();
+    enter = null;
+    toast(`"${p.name}" eliminado.`);
+  });
 }
 async function deleteSession(p, sid) {
   if (!(await ask('Borrar sesión', 'Se quita esta sesión y su tiempo del proyecto.', 'Borrar', true))) return;
-  p.sessions = p.sessions.filter((s) => s.id !== sid);
-  commit();
+  sfx('remove');
+  leave([$(`tr[data-sid="${sid}"]`)], () => {
+    p.sessions = p.sessions.filter((s) => s.id !== sid);
+    commit();
+    toast('Sesión borrada.');
+  });
 }
 function checkLevel(prev) {
   const l = level();
@@ -542,12 +607,12 @@ function pickSource(mode, lvl) {
 async function showLevelImage(lvl, { manual = false, mode = 'new' } = {}) {
   if (!state.settings.levelImages || $('.photo-overlay')) return;
   if (lvl < 1) {
-    if (manual) toast(`Tu primera imagen se desbloquea al llegar a nivel 1. Te faltan ${XP_PER_LEVEL - xpTotal()} XP.`);
+    if (manual) { sfx('tick'); flashEl($('.stat.level')); } if (manual) toast(`Tu primera imagen se desbloquea al llegar a nivel 1. Te faltan ${XP_PER_LEVEL - xpTotal()} XP.`);
     return;
   }
   if (gallery.status === 'needs-permission') await loadGallery(true);
   if (!gallery.sources.length) {
-    if (manual) toast('Elige una carpeta con imágenes en Menú → Carpeta.');
+    if (manual) { sfx('error'); toast('Elige una carpeta con imágenes en Menú → Carpeta.'); }
     return;
   }
   const src = pickSource(mode, lvl);
@@ -622,8 +687,19 @@ function debugPaceText() {
   const pc = pace(a.p);
   return `${esc(a.p.name)}: ${Math.floor(pc.minutes)} min seguidos · ${pc.label} ×${pc.mult} · ${needsHold(a.p) ? `pausa sostenida ${fmtSec(pc.hold)}` : 'pausa libre'}`;
 }
+// El panel de debug es preferencia de este navegador (no va en los datos), igual en modo real o de prueba.
+const DEBUG_PANEL_KEY = 'clock-management:debug-panel';
+let debugPanel = false;
+try { debugPanel = localStorage.getItem(DEBUG_PANEL_KEY) === '1'; } catch { /* sin storage */ }
+function setDebugPanel(on) {
+  debugPanel = on;
+  try { localStorage.setItem(DEBUG_PANEL_KEY, on ? '1' : '0'); } catch { /* sin storage */ }
+  renderMenu();
+  renderDebug();
+}
 function renderDebug() {
   $('#debugBanner').hidden = !debugMode;
+  $('#debugFooter').hidden = !debugPanel;
   document.body.classList.toggle('debug-mode', debugMode);
   const dis = debugMode ? '' : 'disabled';
   $('#debugBody').innerHTML = `
@@ -683,6 +759,8 @@ function warp(min) {
   timeOffset = state.debugOffset;
   save();
   renderAll();
+  sfx('tick');
+  flashEl($('.debug-val'));
 }
 // Suma XP simulado y corre el mismo flujo que al ganarlo de verdad (toast, confeti, imagen).
 function addDebugXp(amount) {
@@ -690,11 +768,12 @@ function addDebugXp(amount) {
   const prev = level();
   state.debugXp = (state.debugXp || 0) + amount;
   commit();
-  checkLevel(prev);
+  if (level() > prev) checkLevel(prev);
+  else { sfx('step'); const b = $('[data-debug=xp]'); if (b) { const pt = centerOf(b); floatText(pt.x, pt.y, amount); } }
 }
 function simulateAway(min) {
   if (!debugMode) return;
-  if (!activeSession()) { toast('Primero inicia un cronómetro.'); return; }
+  if (!activeSession()) { sfx('error'); toast('Primero inicia un cronómetro.'); return; }
   save();
   const last = state.lastSeen;
   state.debugOffset = (state.debugOffset || 0) + min * 60000;
@@ -738,6 +817,7 @@ function renderMenu() {
   $('#mFolder').hidden = !imgs;
   $('#mFolder b').textContent = folderLabel();
   $('#mForget').hidden = !imgs || !gallery.handle;
+  $('#mDebug b').textContent = debugPanel ? 'Sí' : 'No';
 }
 
 function renderList() {
@@ -745,7 +825,7 @@ function renderList() {
   const open = state.projects.filter((p) => !isDone(p)).sort((a, b) => b.createdAt - a.createdAt);
   const done = state.projects.filter(isDone).sort((a, b) => b.completedAt - a.completedAt);
   const item = (p) => `
-    <button class="proj ${p.id === state.selectedId ? 'sel' : ''} ${isDone(p) ? 'done' : ''}" data-action="select" data-id="${p.id}">
+    <button class="proj ${p.id === state.selectedId ? 'sel' : ''} ${isDone(p) ? 'done' : ''} ${enter?.list && enter.pid === p.id ? 'arrive' : ''}" data-action="select" data-id="${p.id}">
       <span class="proj-name">${act && act.p === p ? '<i class="live"></i>' : ''}${esc(p.name)}</span>
       <span class="proj-time" data-timer="${p.id}" data-fmt="short"></span>
       <span class="proj-bar"><i style="width:${Math.round(progress(p) * 100)}%"></i></span>
@@ -809,6 +889,8 @@ function tplSelectHTML(p) {
 
 function renderMain() {
   const m = $('#main');
+  m.classList.remove('leaving');
+  m.classList.toggle('enter', !!enter && enter.pid === state.selectedId);
   const p = selected();
   if (!p) { m.innerHTML = renderEmpty(); return; }
   const running = isRunning(p), done = isDone(p), cur = p.rounds[p.currentRound];
@@ -828,7 +910,7 @@ function renderMain() {
       <button class="btn btn-danger btn-small" data-action="delete">Eliminar</button>
     </section>
 
-    <section class="timer ${running ? 'running' : ''} ${broke ? 'broke' : ''}" data-dial="${p.id}">
+    <section class="timer ${running ? 'running' : ''} ${broke ? `broke broke-${broke}` : ''}" data-dial="${p.id}">
       ${dialSVG()}
       <div class="timer-info">
         <div class="status">${running ? '<i class="live"></i>En marcha' : (isStarted(p) ? 'En pausa' : 'Sin iniciar')}</div>
@@ -837,7 +919,7 @@ function renderMain() {
           ? 'Proyecto completado'
           : `En <b>${esc(cur.name)}</b> llevas <span data-round-timer="${p.id}:${p.currentRound}" data-fmt="short"></span>`}</div>
       </div>
-      <button class="btn btn-solid play ${hold ? 'needs-hold' : ''}" data-action="toggle">${playLabel}</button>
+      <button class="btn btn-solid play ${hold ? `needs-hold hold-${pace(p).idx}` : ''}" data-action="toggle">${playLabel}</button>
       <div class="pace" data-pace="${p.id}"></div>
       ${renderAway(p)}
     </section>
@@ -890,7 +972,7 @@ function renderRoundCard(p) {
   const ready = n === total;
   const nextId = r.steps.find((s) => !s.doneAt)?.id;
   const steps = r.steps.map((s) => `
-    <li class="step ${s.doneAt ? 'done' : ''} ${s.id === nextId ? 'next' : ''} ${flash && flash.sid === s.id ? 'just' : ''}" data-action="step" data-sid="${s.id}">
+    <li class="step ${s.doneAt ? 'done' : ''} ${s.id === nextId ? 'next' : ''} ${flash && flash.sid === s.id ? 'just' : ''} ${flash && flash.added === s.id ? 'added' : ''}" data-action="step" data-sid="${s.id}">
       <span class="check">${s.doneAt ? '✓' : ''}</span>
       <span class="step-text">${esc(s.text)}</span>
       ${s.doneAt ? `<span class="step-time">${s.xp && s.xp !== XP.step ? `+${s.xp} · ` : ''}${fmtTime(s.doneAt)}</span>` : ''}
@@ -926,7 +1008,7 @@ function renderSessions(p) {
     const live = s.end == null;
     const rn = s.round == null ? '—' : (p.rounds[s.round]?.short ?? '—');
     return `
-      <tr class="${live ? 'live-row' : ''}">
+      <tr class="${live ? 'live-row' : ''}" data-sid="${s.id}">
         <td>${fmtDate(s.start)}</td>
         <td class="mono">${fmtTime(s.start)} – ${live ? 'en curso' : fmtTime(s.end)}</td>
         <td class="num">${live ? `<span data-sess="${p.id}:${s.id}"></span>` : fmtShort(s.end - s.start)}</td>
@@ -1065,7 +1147,21 @@ const SFX = {
   round: [[523, 659, 784, 1047], 0.18, 0.09],
   project: [[523, 659, 784, 1047, 784, 1047, 1319], 0.24, 0.11],
   level: [[659, 880, 1175, 1568], 0.16, 0.08],
-  break: [[392, 330, 262, 196], 0.24, 0.11, 'sawtooth', 0.06],
+  // Pausa con ritmo: mientras más caro, más largo, más grave y más áspero.
+  break1: [[523, 392], 0.16, 0.1, 'triangle', 0.1],
+  break2: [[440, 349, 262], 0.2, 0.1, 'sawtooth', 0.05],
+  break3: [[392, 330, 262, 196, 147], 0.28, 0.12, 'sawtooth', 0.07],
+  beat: [[110], 0.07, 0, 'sine', 0.22],          // latido mientras sostienes Pausar
+  relief: [[660, 880], 0.06, 0.05, 'triangle', 0.06], // soltaste antes: no pausó
+  // Acciones generales: cortas y bajitas.
+  create: [[587, 880], 0.09, 0.06, 'triangle', 0.12],
+  remove: [[294, 196], 0.14, 0.08, 'sine', 0.2],
+  undo: [[880, 659], 0.07, 0.05, 'triangle', 0.08],
+  tick: [[1568], 0.03, 0, 'triangle', 0.05],
+  toggleOn: [[880, 1175], 0.05, 0.04, 'triangle', 0.07],
+  toggleOff: [[1175, 880], 0.05, 0.04, 'triangle', 0.07],
+  save: [[659, 988], 0.1, 0.07, 'triangle', 0.12],
+  error: [[220, 208], 0.09, 0.07, 'square', 0.04],
   shutter: [[1800, 2400, 600], 0.03, 0.045, 'square', 0.05],
 };
 function sfx(name) {
@@ -1140,9 +1236,10 @@ function ask(title, text, okLabel = 'Aceptar', danger = false) {
       resolve(value);
     };
     ok.onclick = done(true);
-    $('#confirmCancel').onclick = done(false);
-    d.oncancel = done(false); // tecla Esc
+    $('#confirmCancel').onclick = (e) => { sfx('toggleOff'); done(false)(e); };
+    d.oncancel = (e) => { sfx('toggleOff'); done(false)(e); }; // tecla Esc
     d.showModal();
+    sfx('tick');
     (danger ? $('#confirmCancel') : ok).focus();
   });
 }
@@ -1154,7 +1251,9 @@ document.addEventListener('click', (e) => {
   const p = selected();
   switch (t.dataset.action) {
     case 'new': createProject(); break;
-    case 'select': state.selectedId = t.dataset.id; commit(); break;
+    case 'select':
+      if (t.dataset.id !== state.selectedId) { state.selectedId = t.dataset.id; enter = { pid: t.dataset.id }; commit(); enter = null; }
+      break;
     case 'toggle':
       if (!p || now() - holdDoneAt < 600) break; // el clic que sigue a una pausa sostenida no cuenta
       if (needsHold(p)) { if (e.detail === 0) holdHint(); } // con ritmo, se pausa manteniendo presionado
@@ -1239,13 +1338,25 @@ $('#btnMenu').addEventListener('click', () => {
   const m = $('#menu');
   m.hidden = !m.hidden;
   $('#btnMenu').setAttribute('aria-expanded', String(!m.hidden));
+  if (!m.hidden) sfx('tick');
 });
 document.addEventListener('click', (e) => { if (!$('#menu').hidden && !e.target.closest('.menu-wrap')) closeMenu(); });
 
+const toggleSfx = (on) => sfx(on ? 'toggleOn' : 'toggleOff');
 $('#mSound').addEventListener('click', () => {
   state.settings.sound = !state.settings.sound;
   save(); renderMenu();
-  sfx('step');
+  toggleSfx(true); // si se apagó, sfx() ya no suena: el silencio es la respuesta
+});
+$('#mDebug').addEventListener('click', () => {
+  setDebugPanel(!debugPanel);
+  toggleSfx(debugPanel);
+  if (debugPanel) {
+    closeMenu();
+    toast('Panel de debug abierto al final de la página.');
+    $('#debugFooter').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'end' });
+    flashEl($('#debugFooter'));
+  }
 });
 function applyTheme() {
   const t = state.settings.theme;
@@ -1256,15 +1367,18 @@ $('#mTheme').addEventListener('click', () => {
   const order = ['system', 'light', 'dark'];
   state.settings.theme = order[(order.indexOf(state.settings.theme) + 1) % order.length];
   applyTheme(); save(); renderMenu();
+  sfx('tick');
 });
 $('#mFriction').addEventListener('click', () => {
   state.settings.friction = !state.settings.friction;
   commit();
+  toggleSfx(state.settings.friction);
   toast(state.settings.friction ? 'Con ritmo activo, pausar pide mantener presionado.' : 'Pausa sin fricción: un clic y listo.');
 });
 $('#mImages').addEventListener('click', async () => {
   state.settings.levelImages = !state.settings.levelImages;
   commit();
+  toggleSfx(state.settings.levelImages);
   if (!state.settings.levelImages) { toast('Imágenes de nivel apagadas.'); return; }
   await initGallery();
   if (!gallery.handle && !gallery.sources.length) pickFolder(); // primera vez: elegir carpeta de una vez
@@ -1299,6 +1413,8 @@ $('#mExport').addEventListener('click', () => {
   a.download = `clock-management-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  sfx('save');
+  toast(`Respaldo descargado: ${a.download}`);
 });
 $('#fileImport').addEventListener('change', async (e) => {
   closeMenu();
@@ -1313,8 +1429,9 @@ $('#fileImport').addEventListener('change', async (e) => {
     applyTheme();
     setAway(null);
     commit();
-    toast('Datos importados.');
-  } catch { toast('Ese archivo no parece un respaldo válido.'); }
+    sfx('save');
+    toast(`Datos importados: ${state.projects.length} proyecto(s).`);
+  } catch { sfx('error'); toast('Ese archivo no parece un respaldo válido.'); }
 });
 
 /* ---------- plantillas ---------- */
@@ -1361,7 +1478,7 @@ function openTemplates() {
   renderTplDialog();
   $('#dlgTemplate').showModal();
 }
-$('#btnTemplate').addEventListener('click', openTemplates);
+$('#btnTemplate').addEventListener('click', () => { openTemplates(); sfx('tick'); });
 $('#tplSelect').addEventListener('change', (e) => { syncTplForm(); tw.editId = e.target.value; renderTplDialog(); });
 $('#tplName').addEventListener('input', (e) => {
   const opt = $('#tplSelect').selectedOptions[0];
@@ -1374,6 +1491,7 @@ $('#tplNew').addEventListener('click', () => {
   tw.editId = t.id;
   renderTplDialog();
   $('#tplName').select();
+  sfx('create');
 });
 $('#tplDup').addEventListener('click', () => {
   syncTplForm();
@@ -1383,39 +1501,45 @@ $('#tplDup').addEventListener('click', () => {
   tw.editId = t.id;
   renderTplDialog();
   $('#tplName').select();
+  sfx('create');
 });
 $('#tplDel').addEventListener('click', () => {
-  if (tw.templates.length <= 1) { toast('Debe quedar al menos una plantilla.'); return; }
+  if (tw.templates.length <= 1) { sfx('error'); toast('Debe quedar al menos una plantilla.'); return; }
   tw.templates = tw.templates.filter((t) => t.id !== tw.editId);
   if (!tw.templates.some((t) => t.id === tw.defaultId)) tw.defaultId = tw.templates[0].id;
   tw.editId = tw.defaultId;
   renderTplDialog();
+  sfx('remove');
 });
 $('#tplDefault').addEventListener('change', (e) => {
-  if (e.target.checked) { syncTplForm(); tw.defaultId = tw.editId; renderTplDialog(); }
+  if (e.target.checked) { syncTplForm(); tw.defaultId = tw.editId; renderTplDialog(); sfx('toggleOn'); }
 });
 $('#tplAdd').addEventListener('click', () => {
   syncTplForm();
   const t = twCurrent();
   t.rounds.push({ short: String(t.rounds.length + 1), name: `Ronda ${t.rounds.length + 1}`, steps: [] });
   renderTplDialog();
+  sfx('tick');
+  $(`#tplRoundName${t.rounds.length - 1}`)?.select();
 });
 $('#tplRounds').addEventListener('click', (e) => {
   const b = e.target.closest('[data-tpl-rm]');
   if (!b) return;
   syncTplForm();
   const t = twCurrent();
-  if (t.rounds.length <= 1) { toast('Debe quedar al menos una ronda.'); return; }
+  if (t.rounds.length <= 1) { sfx('error'); toast('Debe quedar al menos una ronda.'); return; }
   t.rounds.splice(+b.dataset.tplRm, 1);
   renderTplDialog();
+  sfx('remove');
 });
-$('#tplCancel').addEventListener('click', () => $('#dlgTemplate').close());
+$('#tplCancel').addEventListener('click', () => { $('#dlgTemplate').close(); sfx('toggleOff'); });
 $('#tplSave').addEventListener('click', () => {
   syncTplForm();
   state.settings.templates = tw.templates;
   state.settings.defaultTemplateId = tw.defaultId;
   $('#dlgTemplate').close();
   commit();
+  sfx('save');
   toast('Plantillas guardadas. Los proyectos existentes no cambian.');
 });
 
@@ -1432,10 +1556,6 @@ setInterval(tick, 1000);
 setInterval(save, 15000);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
-// El footer de debug recuerda si lo dejaste abierto (y en modo prueba siempre abre).
-try { $('#debugDetails').open = debugMode || localStorage.getItem('clock-management:debug-open') === '1'; } catch { /* sin storage */ }
-$('#debugDetails').addEventListener('toggle', (e) => {
-  try { localStorage.setItem('clock-management:debug-open', e.target.open ? '1' : '0'); } catch { /* sin storage */ }
-});
+try { localStorage.removeItem('clock-management:debug-open'); } catch { /* llave vieja, ya no se usa */ }
 // Enter dentro de los diálogos no debe cerrarlos sin guardar.
 $$('dialog form').forEach((f) => f.addEventListener('submit', (e) => e.preventDefault()));
