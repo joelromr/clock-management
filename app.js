@@ -53,12 +53,16 @@ function fmtClock(ms) {
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
 const fmtClockHTML = (ms) => fmtClock(ms).replace(/:/g, '<span class="sep">:</span>');
+// Tiempo transcurrido, sin redondear a minutos: "45s", "3m 07s", "1h 05m 12s".
 function fmtShort(ms) {
-  const m = Math.floor(ms / 60000);
-  if (m < 1) return `${Math.max(0, Math.floor(ms / 1000))}s`;
-  const h = Math.floor(m / 60);
-  return h ? `${h}h ${pad(m % 60)}m` : `${m}m`;
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h) return `${h}h ${pad(m)}m ${pad(sec)}s`;
+  if (m) return `${m}m ${pad(sec)}s`;
+  return `${sec}s`;
 }
+// Cantidades exactas (lo que descuentas): "5 min"; si no son minutos cerrados, con segundos.
+const fmtAmount = (ms) => (ms % 60000 === 0 ? `${ms / 60000} min` : fmtShort(ms));
 const fmtDate = (t) => new Date(t).toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 const fmtDay = (t) => new Date(t).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
 const fmtTime = (t) => new Date(t).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
@@ -163,21 +167,22 @@ const buildRounds = (tpl) => tpl.rounds.map((t) => ({
 }));
 
 /* --- ritmo --- */
-// Inicio del tramo continuo: sesiones pegadas (fin == inicio de la siguiente) cuentan como una sola carrera.
-function runStart(p) {
+// Tramo continuo: sesiones pegadas (fin == inicio de la siguiente) cuentan como una sola carrera.
+// Lo que descontaste en esas sesiones también se resta del ritmo: el baño no suma hacia ningún multiplicador.
+function runInfo(p) {
   const act = p.sessions.find((s) => s.end == null);
   if (!act) return null;
-  let start = act.start, found = true;
+  let start = act.start, deducted = act.deducted || 0, found = true;
   while (found) {
     found = false;
-    for (const s of p.sessions) if (s.end === start) { start = s.start; found = true; break; }
+    for (const s of p.sessions) if (s.end === start) { start = s.start; deducted += s.deducted || 0; found = true; break; }
   }
-  return start;
+  return { start, deducted };
 }
 function pace(p) {
-  const st = p && runStart(p);
-  if (st == null) return null;
-  const minutes = (now() - st) / 60000;
+  const run = p && runInfo(p);
+  if (!run) return null;
+  const minutes = Math.max(0, now() - run.start - run.deducted) / 60000;
   let idx = 0;
   PACE.forEach((t, i) => { if (minutes >= t.min) idx = i; });
   return { ...PACE[idx], idx, minutes, next: PACE[idx + 1] || null };
@@ -303,7 +308,7 @@ function splitRunningSession(p) {
   if (!isDone(p)) p.sessions.push({ id: uid(), start: t, end: null, round: p.currentRound });
 }
 
-/* --- descontar tiempo (sin pausar ni romper el ritmo) --- */
+/* --- descontar tiempo (sin pausar; se resta del tiempo y también del ritmo) --- */
 let lastDeduct = null; // { pid, sid, ms } — para "Deshacer"
 const deductTarget = (p) => p.sessions.find((s) => s.end == null) || p.sessions[p.sessions.length - 1];
 function deductTime(p, min, btn) {
@@ -318,8 +323,8 @@ function deductTime(p, min, btn) {
   sfx('deduct');
   const clock = $('.clock');
   if (clock) { clock.classList.remove('dip'); void clock.offsetWidth; clock.classList.add('dip'); }
-  if (pt) floatText(pt.x, pt.y - 18, `−${fmtShort(ms)}`);
-  toast(`Descontados ${fmtShort(ms)} de esta sesión. El ritmo sigue.`);
+  if (pt) floatText(pt.x, pt.y - 18, `−${fmtAmount(ms)}`);
+  toast(`Descontados ${fmtAmount(ms)} de esta sesión y del ritmo.`);
 }
 function undoDeduct() {
   const d = lastDeduct;
@@ -330,7 +335,7 @@ function undoDeduct() {
   if (!s.deducted) delete s.deducted;
   commit();
   sfx('undo');
-  toast(`Descuento deshecho: +${fmtShort(d.ms)}.`);
+  toast(`Descuento deshecho: +${fmtAmount(d.ms)}.`);
 }
 
 /* --- favicon: punto rojo mientras el reloj corre --- */
@@ -379,7 +384,7 @@ function cancelHold() {
 }
 function holdHint() {
   const pc = pace(selected());
-  if (pc) toast(`Mantén presionado ${fmtSec(pc.hold)} para pausar. Perderías el ritmo ×${pc.mult} (${Math.floor(pc.minutes)} min seguidos).`);
+  if (pc) toast(`Mantén presionado ${fmtSec(pc.hold)} para pausar. Perderías el ritmo ×${pc.mult} (${fmtShort(pc.minutes * 60000)} seguidos).`);
 }
 function pauseWithLoss(p) {
   const pc = pace(p);
@@ -391,10 +396,10 @@ function pauseWithLoss(p) {
   broke = 0;
   if (sev === 3) vignette();
   if (!pc) return;
-  const min = Math.floor(pc.minutes);
-  if (sev === 1) toast(`Pausa. Perdiste el ritmo ×${pc.mult} (${min} min).`);
-  else if (sev === 2) toast(`Se rompió tu ritmo ×${pc.mult} tras ${min} min seguidos.`);
-  else toast(`Se rompió una racha de ${fmtShort(pc.minutes * 60000)} ×${pc.mult}. Estabas a ${Math.max(1, Math.ceil(GOAL_MIN - pc.minutes))} min del tramo completo.`);
+  const run = fmtShort(pc.minutes * 60000);
+  if (sev === 1) toast(`Pausa. Perdiste el ritmo ×${pc.mult} (${run}).`);
+  else if (sev === 2) toast(`Se rompió tu ritmo ×${pc.mult} tras ${run} seguidos.`);
+  else toast(`Se rompió una racha de ${run} ×${pc.mult}. Estabas a ${fmtShort((GOAL_MIN - pc.minutes) * 60000)} del tramo completo.`);
 }
 // Destello rojo en los bordes: solo para la pausa más cara.
 function vignette() {
@@ -734,7 +739,7 @@ function debugPaceText() {
   const a = activeSession();
   if (!a) return 'Ningún cronómetro corriendo.';
   const pc = pace(a.p);
-  return `${esc(a.p.name)}: ${Math.floor(pc.minutes)} min seguidos · ${pc.label} ×${pc.mult} · ${needsHold(a.p) ? `pausa sostenida ${fmtSec(pc.hold)}` : 'pausa libre'}`;
+  return `${esc(a.p.name)}: ${fmtShort(pc.minutes * 60000)} de ritmo · ${pc.label} ×${pc.mult} · ${needsHold(a.p) ? `pausa sostenida ${fmtSec(pc.hold)}` : 'pausa libre'}`;
 }
 // El panel de debug es preferencia de este navegador (no va en los datos), igual en modo real o de prueba.
 const DEBUG_PANEL_KEY = 'clock-management:debug-panel';
@@ -984,10 +989,10 @@ function renderDeduct(p) {
   const s = deductTarget(p);
   if (!s) return '';
   const undo = lastDeduct && lastDeduct.pid === p.id && lastDeduct.sid === s.id
-    ? `<button class="chip chip-undo" data-action="undo-deduct">Deshacer −${fmtShort(lastDeduct.ms)}</button>` : '';
-  const total = s.deducted ? `<span class="deduct-total">${fmtShort(s.deducted)} descontados ${s.end == null ? 'en esta sesión' : 'de la última sesión'}</span>` : '';
+    ? `<button class="chip chip-undo" data-action="undo-deduct">Deshacer −${fmtAmount(lastDeduct.ms)}</button>` : '';
+  const total = s.deducted ? `<span class="deduct-total">${fmtAmount(s.deducted)} descontados ${s.end == null ? 'en esta sesión' : 'de la última sesión'}</span>` : '';
   return `
-    <div class="deduct" title="Quita minutos que no trabajaste (p. ej. ir al baño) sin pausar ni romper el ritmo">
+    <div class="deduct" title="Quita minutos que no trabajaste (p. ej. ir al baño) sin pausar. Se restan del tiempo y también del ritmo.">
       <span class="deduct-label">Descontar</span>
       ${[1, 3, 5].map((m) => `<button class="chip" data-action="deduct" data-min="${m}">−${m} min</button>`).join('')}
       ${undo}${total}
@@ -1076,7 +1081,7 @@ function renderSessions(p) {
       <tr class="${live ? 'live-row' : ''}" data-sid="${s.id}">
         <td>${fmtDate(s.start)}</td>
         <td class="mono">${fmtTime(s.start)} – ${live ? 'en curso' : fmtTime(s.end)}</td>
-        <td class="num">${live ? `<span data-sess="${p.id}:${s.id}"></span>` : fmtShort(sessionMs(s))}${s.deducted ? `<small class="deducted">−${fmtShort(s.deducted)}</small>` : ''}</td>
+        <td class="num">${live ? `<span data-sess="${p.id}:${s.id}"></span>` : fmtShort(sessionMs(s))}${s.deducted ? `<small class="deducted">−${fmtAmount(s.deducted)}</small>` : ''}</td>
         <td><span class="tag">${esc(rn)}</span></td>
         <td>${live ? '' : `<button class="x" data-action="rmsession" data-sid="${s.id}" title="Borrar sesión" aria-label="Borrar sesión">×</button>`}</td>
       </tr>`;
