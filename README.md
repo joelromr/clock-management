@@ -14,10 +14,11 @@ Luego entra a <http://localhost:5173>.
 
 > Los datos viven en el navegador y en ese origen (`localhost:5173`). Si borras los datos del sitio, se pierden: usa **Exportar** de vez en cuando para respaldar en JSON, e **Importar** para restaurar.
 
-## Qué hace (v0.1)
+## Qué hace (v0.2)
 
 - **▶ Nuevo y arrancar**: crea "Proyecto N" con fecha/hora de inicio y arranca el cronómetro. El nombre se edita ahí mismo.
-- **Un solo cronómetro activo**: si arrancas otro proyecto, el anterior se pausa solo. El tiempo sigue contando aunque cierres la pestaña (se guarda la hora de inicio, no un contador).
+- **Un solo cronómetro activo**: si arrancas otro proyecto, el anterior se pausa solo.
+- **Sigue contando con el navegador cerrado**: se guarda la hora de inicio, no un contador. Si vuelves después de más de 10 min sin la página abierta, te pregunta si ese tiempo cuenta: *Sí, cuenta*, *Descontar y seguir* o *Descontar y pausar* (corta la sesión en el momento en que se cerró).
 - **Camino de rondas**: Inicio → Evaluación A → Evaluación B → Evaluación combinada → 🏆 Meta.
   - Cada ronda tiene pasos (micro-logros). Marcar uno da +10 XP, confeti y sonido.
   - Cerrar una ronda da +50 XP; terminar el proyecto da +200 XP y celebración.
@@ -37,7 +38,7 @@ Luego entra a <http://localhost:5173>.
 ## Archivos
 
 - `index.html` — estructura
-- `styles.css` — estilos (modo oscuro/claro según el sistema)
+- `styles.css` — estilo "hoja de cronometraje" (modo claro/oscuro según el sistema; fuentes Barlow y JetBrains Mono desde Google Fonts, con respaldo local)
 - `app.js` — estado, lógica, render y efectos
 - `serve.js` — servidor estático mínimo con Node
 

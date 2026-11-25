@@ -8,6 +8,7 @@
 const STORAGE_KEY = 'clock-management:v1';
 const XP = { step: 10, round: 50, project: 200 };
 const XP_PER_LEVEL = 500;
+const AWAY_THRESHOLD = 10 * 60 * 1000; // a partir de 10 min sin la página abierta, preguntamos
 
 const DEFAULT_TEMPLATE = [
   { short: 'A', name: 'Evaluación A', steps: ['Preparar material', 'Evaluar', 'Registrar resultados'] },
@@ -28,6 +29,7 @@ function fmtClock(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
+const fmtClockHTML = (ms) => fmtClock(ms).replace(/:/g, '<span class="sep">:</span>');
 function fmtShort(ms) {
   const m = Math.floor(ms / 60000);
   if (m < 1) return `${Math.max(0, Math.floor(ms / 1000))}s`;
@@ -35,14 +37,16 @@ function fmtShort(ms) {
   return h ? `${h}h ${pad(m % 60)}m` : `${m}m`;
 }
 const fmtDate = (t) => new Date(t).toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+const fmtDay = (t) => new Date(t).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
 const fmtTime = (t) => new Date(t).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 const dayKey = (t) => { const d = new Date(t); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 /* ---------- almacenamiento ---------- */
 let storageWarned = false;
 function freshState() {
-  return { version: 1, projects: [], selectedId: null, settings: { sound: true, template: clone(DEFAULT_TEMPLATE) } };
+  return { version: 1, projects: [], selectedId: null, lastSeen: null, settings: { sound: true, template: clone(DEFAULT_TEMPLATE) } };
 }
 function normalize(s) {
   const base = freshState();
@@ -58,14 +62,17 @@ function load() {
   } catch { return null; }
 }
 function save() {
+  state.lastSeen = now();
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch {
-    if (!storageWarned) { storageWarned = true; toast('⚠️ No se pudo guardar en el navegador. Usa Exportar para respaldar.'); }
+    if (!storageWarned) { storageWarned = true; toast('No se pudo guardar en el navegador. Usa Exportar para respaldar.'); }
   }
 }
 
 let state = normalize(load());
-let flash = null; // { pid, ri?, sid? } — elemento a animar en el próximo render
+let flash = null; // { pid, ri?, sid? } — qué animar en el próximo render
+let away = null;  // { pid, sid, from } — cronómetro que siguió corriendo con la página cerrada
+function setAway(v) { away = v; state.away = v; }
 
 /* ---------- consultas ---------- */
 const getProject = (id) => state.projects.find((p) => p.id === id);
@@ -160,16 +167,17 @@ function createProject() {
   startTimer(p);
   sfx('start');
   commit();
-  toast('⏱ Cronómetro corriendo. Cámbiale el nombre si quieres.');
+  toast('Cronómetro corriendo. Cámbiale el nombre si quieres.');
   requestAnimationFrame(() => { const i = $('#projName'); if (i) { i.focus(); i.select(); } });
 }
 
 function startTimer(p) {
   const a = activeSession();
   if (a) a.s.end = now();
+  setAway(null);
   p.sessions.push({ id: uid(), start: now(), end: null, round: isDone(p) ? null : p.currentRound });
 }
-function stopTimer() { const a = activeSession(); if (a) a.s.end = now(); }
+function stopTimer() { const a = activeSession(); if (a) a.s.end = now(); setAway(null); }
 function toggleTimer(p) {
   if (isRunning(p)) { stopTimer(); sfx('stop'); }
   else { startTimer(p); sfx('start'); }
@@ -197,9 +205,9 @@ function toggleStep(p, sid, el) {
   commit();
   flash = null;
   burst(pt.x, pt.y, 26, 0.9);
-  floatText(pt.x, pt.y, `+${XP.step} XP`);
+  floatText(pt.x, pt.y, `+${XP.step}`);
   sfx('step');
-  if (r.steps.every((s) => s.doneAt)) toast(`🔓 Todo listo en ${r.name}. ¡Cierra la ronda!`);
+  if (r.steps.every((s) => s.doneAt)) toast(`Todo listo en ${r.name}. Cierra la ronda.`);
   checkLevel(lvl);
 }
 
@@ -220,13 +228,13 @@ function completeRound(p, el) {
   if (isDone(p)) {
     celebrateProject(p);
   } else {
-    const node = $(`.milestone[data-ri="${ri}"]`);
+    const node = $(`.station[data-ri="${ri}"]`);
     const np = node ? centerOf(node) : pt;
     burst(pt.x, pt.y, 50, 1.2);
     burst(np.x, np.y, 40, 1);
-    floatText(np.x, np.y, `+${XP.round} XP`);
+    floatText(np.x, np.y, `+${XP.round}`);
     sfx('round');
-    toast(`✅ ${r.name} completada. Siguiente: ${p.rounds[p.currentRound].name}`);
+    toast(`${r.name} completada. Sigue: ${p.rounds[p.currentRound].name}.`);
   }
   checkLevel(lvl);
 }
@@ -269,13 +277,35 @@ function checkLevel(prev) {
   const l = level();
   if (l > prev) {
     setTimeout(() => {
-      toast(`⭐ ¡Subiste a nivel ${l}!`);
+      toast(`Subiste a nivel ${l}.`);
       const s = $('.stat.level');
       const pt = s ? centerOf(s) : { x: innerWidth / 2, y: 60 };
       burst(pt.x, pt.y, 60, 1.2);
       sfx('level');
     }, 500);
   }
+}
+
+/* --- tiempo que corrió con la página cerrada --- */
+function detectAway() {
+  const a = activeSession();
+  const last = state.lastSeen;
+  if (a && last && last > a.s.start && now() - last > AWAY_THRESHOLD) {
+    setAway({ pid: a.p.id, sid: a.s.id, from: last });
+    state.selectedId = a.p.id;
+  }
+}
+function resolveAway(mode) {
+  if (!away) return;
+  const p = getProject(away.pid);
+  const s = p?.sessions.find((x) => x.id === away.sid && x.end == null);
+  if (s && mode !== 'keep') {
+    s.end = away.from; // cortamos la sesión en el momento en que se cerró la página
+    if (mode === 'resume') p.sessions.push({ id: uid(), start: now(), end: null, round: s.round });
+    sfx(mode === 'resume' ? 'start' : 'stop');
+  }
+  setAway(null);
+  commit();
 }
 
 /* ---------- render ---------- */
@@ -285,12 +315,11 @@ function renderStats() {
   const xp = xpTotal(), lvl = level(), into = xp % XP_PER_LEVEL, st = streak();
   $('#stats').innerHTML = `
     <div class="stat"><span class="stat-label">Hoy</span><span class="stat-val" data-today></span></div>
-    <div class="stat"><span class="stat-label">Logros hoy</span><span class="stat-val">✨ ${todayAchievements()}</span></div>
-    <div class="stat"><span class="stat-label">Racha</span><span class="stat-val">🔥 ${st} ${st === 1 ? 'día' : 'días'}</span></div>
-    <div class="stat level"><span class="stat-label">Nivel ${lvl}</span>
-      <div class="xpbar"><i style="width:${(into / XP_PER_LEVEL) * 100}%"></i></div>
-      <span class="xp">${into} / ${XP_PER_LEVEL} XP</span></div>`;
-  $('#btnSound').textContent = state.settings.sound ? '🔊' : '🔇';
+    <div class="stat"><span class="stat-label">Logros hoy</span><span class="stat-val">${todayAchievements()}</span></div>
+    <div class="stat"><span class="stat-label">Racha</span><span class="stat-val">${st} <small>${st === 1 ? 'día' : 'días'}</small></span></div>
+    <div class="stat level"><span class="stat-label">Nivel ${lvl} · ${into}/${XP_PER_LEVEL} XP</span>
+      <div class="xpbar"><i style="width:${(into / XP_PER_LEVEL) * 100}%"></i></div></div>`;
+  $('#btnSound').textContent = state.settings.sound ? 'Sonido: sí' : 'Sonido: no';
 }
 
 function renderList() {
@@ -299,48 +328,70 @@ function renderList() {
   const done = state.projects.filter(isDone).sort((a, b) => b.completedAt - a.completedAt);
   const item = (p) => `
     <button class="proj ${p.id === state.selectedId ? 'sel' : ''} ${isDone(p) ? 'done' : ''}" data-action="select" data-id="${p.id}">
-      <span class="proj-top">
-        <span class="proj-name">${act && act.p === p ? '<i class="live"></i>' : ''}${esc(p.name)}</span>
-        <span class="proj-time" data-timer="${p.id}" data-fmt="short"></span>
-      </span>
+      <span class="proj-name">${act && act.p === p ? '<i class="live"></i>' : ''}${esc(p.name)}</span>
+      <span class="proj-time" data-timer="${p.id}" data-fmt="short"></span>
       <span class="proj-bar"><i style="width:${Math.round(progress(p) * 100)}%"></i></span>
-      <span class="proj-sub">${isDone(p) ? '🏆 Completado' : esc(p.rounds[p.currentRound]?.name)} · ${fmtDate(p.createdAt)}</span>
+      <span class="proj-sub">${isDone(p) ? '<b>Completado</b>' : `Ronda ${esc(p.rounds[p.currentRound]?.short)}`} · ${fmtDay(p.createdAt)}</span>
     </button>`;
-  const html = (open.length ? `<h3>En curso (${open.length})</h3>${open.map(item).join('')}` : '')
-    + (done.length ? `<h3>Completados (${done.length})</h3>${done.map(item).join('')}` : '');
-  $('#projectList').innerHTML = html || '<p class="muted small" style="text-align:center">Aún no hay proyectos.</p>';
+  const html = (open.length ? `<div class="list-head"><span>En curso</span><span>${open.length}</span></div>${open.map(item).join('')}` : '')
+    + (done.length ? `<div class="list-head"><span>Completados</span><span>${done.length}</span></div>${done.map(item).join('')}` : '');
+  $('#projectList').innerHTML = html || '<p class="list-empty">Aún no hay proyectos.</p>';
+}
+
+function dialSVG() {
+  let ticks = '';
+  for (let i = 0; i < 60; i++) {
+    const major = i % 5 === 0, a = (i * 6 * Math.PI) / 180, r1 = major ? 35 : 39, r2 = 43;
+    const f = (n) => n.toFixed(2);
+    ticks += `<line class="tk${major ? ' major' : ''}" x1="${f(50 + r1 * Math.sin(a))}" y1="${f(50 - r1 * Math.cos(a))}" x2="${f(50 + r2 * Math.sin(a))}" y2="${f(50 - r2 * Math.cos(a))}"/>`;
+  }
+  return `<svg class="dial" viewBox="0 0 100 100" aria-hidden="true">
+    <circle class="face" cx="50" cy="50" r="47"/>${ticks}
+    <line class="min-hand" data-dial-min x1="50" y1="50" x2="50" y2="27"/>
+    <line class="hand" data-dial-sec x1="50" y1="60" x2="50" y2="9"/>
+    <circle class="hub" cx="50" cy="50" r="3.5"/></svg>`;
+}
+
+function renderAway(p) {
+  if (!away || away.pid !== p.id || !p.sessions.some((s) => s.id === away.sid && s.end == null)) return '';
+  return `
+    <div class="away">
+      <p>Siguió contando con el navegador cerrado: <b>${fmtShort(now() - away.from)}</b> desde las ${fmtTime(away.from)}. ¿Ese tiempo cuenta?</p>
+      <div class="away-actions">
+        <button class="btn btn-small" data-action="away-keep">Sí, cuenta</button>
+        <button class="btn btn-small" data-action="away-resume">Descontar y seguir</button>
+        <button class="btn btn-small" data-action="away-stop">Descontar y pausar</button>
+      </div>
+    </div>`;
 }
 
 function renderMain() {
   const m = $('#main');
   const p = selected();
-  if (!p) {
-    m.innerHTML = `
-      <div class="empty">
-        <div class="empty-icon">🛤️</div>
-        <h2>Construye tu camino</h2>
-        <p class="muted">Un clic crea el proyecto y arranca el cronómetro. Cada paso que completes ilumina el camino hasta la meta.</p>
-        <button class="primary big" data-action="new">▶ Empezar un proyecto</button>
-        <p class="muted small"><kbd>Espacio</kbd> iniciar/pausar · <kbd>N</kbd> siguiente paso</p>
-      </div>`;
-    return;
-  }
+  if (!p) { m.innerHTML = renderEmpty(); return; }
   const running = isRunning(p), done = isDone(p), cur = p.rounds[p.currentRound];
   m.innerHTML = `
-    <section class="card head">
+    <section class="head">
       <input id="projName" class="proj-title" value="${esc(p.name)}" spellcheck="false" aria-label="Nombre del proyecto">
-      <div class="meta">Iniciado ${fmtDate(p.createdAt)}, ${fmtTime(p.createdAt)} · Total <b data-timer="${p.id}" data-fmt="short"></b> · ${p.sessions.length} ${p.sessions.length === 1 ? 'sesión' : 'sesiones'}</div>
-      <button class="ghost danger small" data-action="delete">Eliminar</button>
+      <div class="meta">
+        <span>Inicio <b>${fmtDate(p.createdAt)}, ${fmtTime(p.createdAt)}</b></span>
+        <span>Total <b data-timer="${p.id}" data-fmt="short"></b></span>
+        <span><b>${p.sessions.length}</b> ${p.sessions.length === 1 ? 'sesión' : 'sesiones'}</span>
+      </div>
+      <button class="btn btn-danger btn-small" data-action="delete">Eliminar</button>
     </section>
 
-    <section class="card timer ${running ? 'running' : ''}">
+    <section class="timer ${running ? 'running' : ''}" data-dial="${p.id}">
+      ${dialSVG()}
       <div class="timer-info">
+        <div class="status">${running ? '<i class="live"></i>En marcha' : 'En pausa'}</div>
         <div class="clock" data-timer="${p.id}" data-fmt="clock"></div>
         <div class="clock-sub">${done
-          ? '🏆 Proyecto completado'
+          ? 'Proyecto completado'
           : `En <b>${esc(cur.name)}</b> llevas <span data-round-timer="${p.id}:${p.currentRound}" data-fmt="short"></span>`}</div>
       </div>
-      <button class="play ${running ? 'pause' : ''}" data-action="toggle">${running ? '⏸ Pausar' : '▶ Iniciar'}</button>
+      <button class="btn btn-solid play" data-action="toggle">${running ? '<span class="bars"></span>Pausar' : '<span class="tri"></span>Iniciar'}</button>
+      ${renderAway(p)}
     </section>
 
     ${renderPath(p)}
@@ -348,32 +399,43 @@ function renderMain() {
     ${renderSessions(p)}`;
 }
 
+function renderEmpty() {
+  const preview = {
+    id: '', createdAt: now(), completedAt: null, currentRound: 0, sessions: [],
+    rounds: state.settings.template.map((t) => ({ short: t.short, name: t.name, completedAt: null, steps: t.steps.map((text) => ({ id: '', text, doneAt: null })) })),
+  };
+  return `
+    <section class="empty">
+      <h2>Arranca<br>el reloj</h2>
+      <p>Un clic crea el proyecto y empieza a contar. Cada paso que marques avanza el riel, estación por estación, hasta la meta.</p>
+      <button class="btn btn-solid btn-big" data-action="new"><span class="tri"></span>Empezar un proyecto</button>
+      ${renderPath(preview)}
+    </section>`;
+}
+
 function renderPath(p) {
   const done = isDone(p);
   let html = `
-    <div class="milestone done start"><div class="node">▶</div>
-      <div class="node-label">Inicio<small>${new Date(p.createdAt).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}</small></div></div>`;
+    <div class="station done start"><div class="box"></div>
+      <div class="label">Inicio<small>${fmtDay(p.createdAt)}</small></div></div>`;
   p.rounds.forEach((r, i) => {
     const st = r.completedAt ? 'done' : (i === p.currentRound && !done ? 'current' : 'locked');
     const total = r.steps.length, n = r.steps.filter((s) => s.doneAt).length;
-    const fill = st === 'done' ? 100 : st === 'current' && total ? (n / total) * 100 : 0;
-    const dots = r.steps.map((s) => {
-      const just = flash && flash.sid === s.id ? 'just' : '';
-      return `<i class="dot ${s.doneAt ? 'lit' : ''} ${just}" title="${esc(s.text)}"></i>`;
-    }).join('');
+    const fill = st === 'done' ? 100 : st === 'current' && total ? Math.round((n / total) * 100) : 0;
+    const ticks = r.steps.map((s) => `<i class="tick ${s.doneAt ? 'lit' : ''} ${flash && flash.sid === s.id ? 'just' : ''}" title="${esc(s.text)}"></i>`).join('');
     const pop = flash && flash.pid === p.id && flash.ri === i ? 'pop' : '';
     html += `
-      <div class="seg ${st}"><div class="seg-fill" style="width:${fill}%"></div><div class="dots">${dots}</div></div>
-      <div class="milestone ${st} ${pop}" data-action="node" data-ri="${i}" title="${esc(r.name)}${r.completedAt ? ' · clic para reabrir' : ''}">
-        <div class="node">${r.completedAt ? '✓' : esc(r.short)}</div>
-        <div class="node-label">${esc(r.name)}<small data-round-timer="${p.id}:${i}" data-fmt="short"></small></div>
+      <div class="seg ${st}"><div class="seg-fill" style="width:${fill}%"></div><div class="ticks">${ticks}</div></div>
+      <div class="station ${st} ${pop}" data-action="node" data-ri="${i}" title="${esc(r.name)}${r.completedAt ? ' · clic para reabrir' : ''}">
+        <div class="box">${r.completedAt ? '✓' : esc(r.short)}</div>
+        <div class="label"><span class="lname">${esc(r.name)}</span><small data-round-timer="${p.id}:${i}" data-fmt="short"></small></div>
       </div>`;
   });
+  const popGoal = flash && flash.pid === p.id && done ? 'pop' : '';
   html += `
     <div class="seg ${done ? 'done' : 'locked'}"><div class="seg-fill" style="width:${done ? 100 : 0}%"></div></div>
-    <div class="milestone ${done ? 'done trophy' : 'locked goal'} ${flash && flash.pid === p.id && done ? 'pop' : ''}">
-      <div class="node">🏆</div><div class="node-label">Meta</div></div>`;
-  return `<section class="card path"><div class="track">${html}</div></section>`;
+    <div class="station goal ${done ? 'done' : 'locked'} ${popGoal}" title="Meta"><div class="box"></div><div class="label">Meta</div></div>`;
+  return `<section class="path" aria-label="Avance por rondas"><div class="track">${html}</div></section>`;
 }
 
 function renderRoundCard(p) {
@@ -390,25 +452,24 @@ function renderRoundCard(p) {
     </li>`).join('');
   const last = ri === p.rounds.length - 1;
   return `
-    <section class="card round">
+    <section class="round">
       <div class="round-head">
-        <div><div class="eyebrow">Ronda ${ri + 1} de ${p.rounds.length}</div><h2>${esc(r.name)}</h2></div>
+        <div><div class="eyebrow">Ronda ${ri + 1} de ${p.rounds.length} · ${esc(r.short)}</div><h2>${esc(r.name)}</h2></div>
         <div class="round-count"><b>${n}</b>/${total}</div>
       </div>
       <ul class="steps">${steps}</ul>
-      <form class="addstep"><input name="t" placeholder="+ Agregar paso a esta ronda" autocomplete="off"><button class="ghost" type="submit">Agregar</button></form>
-      <button class="complete ${ready ? 'ready' : ''}" data-action="complete">${last ? '🏁 Completar ronda final' : `✓ Completar ronda y avanzar a ${esc(p.rounds[ri + 1].name)} →`}</button>
+      <form class="addstep"><input id="addStepInput" name="t" placeholder="Agregar paso a esta ronda" autocomplete="off"><button class="btn btn-small" type="submit">Agregar</button></form>
+      <button class="btn complete ${ready ? 'ready' : ''}" data-action="complete">${last ? 'Cerrar ronda final y llegar a la meta' : `Cerrar ronda y pasar a ${esc(p.rounds[ri + 1].name)}`}</button>
     </section>`;
 }
 
 function renderDoneCard(p) {
   return `
-    <section class="card done-card">
-      <div class="big-emoji">🏆</div>
-      <h2>¡Proyecto completado!</h2>
-      <p class="muted">Terminado ${fmtDate(p.completedAt)}, ${fmtTime(p.completedAt)} · ${fmtShort(projectTime(p))} en total</p>
-      <div class="round-summary">${p.rounds.map((r, i) => `<div><b>${esc(r.name)}</b><span>${fmtShort(roundTime(p, i))}</span></div>`).join('')}</div>
-      <button class="ghost" data-action="reopen" data-ri="${p.rounds.length - 1}">Reabrir última ronda</button>
+    <section class="done-card">
+      <span class="stamp">Completado</span>
+      <p>${fmtDate(p.completedAt)}, ${fmtTime(p.completedAt)} · ${fmtShort(projectTime(p))} en total</p>
+      <table class="summary">${p.rounds.map((r, i) => `<tr><td>${esc(r.name)}</td><td>${fmtShort(roundTime(p, i))}</td></tr>`).join('')}</table>
+      <button class="btn btn-small" data-action="reopen" data-ri="${p.rounds.length - 1}">Reabrir última ronda</button>
     </section>`;
 }
 
@@ -421,17 +482,19 @@ function renderSessions(p) {
     return `
       <tr class="${live ? 'live-row' : ''}">
         <td>${fmtDate(s.start)}</td>
-        <td>${fmtTime(s.start)} – ${live ? 'en curso' : fmtTime(s.end)}</td>
+        <td class="mono">${fmtTime(s.start)} – ${live ? 'en curso' : fmtTime(s.end)}</td>
         <td class="num">${live ? `<span data-sess="${p.id}:${s.id}"></span>` : fmtShort(s.end - s.start)}</td>
         <td><span class="tag">${esc(rn)}</span></td>
         <td>${live ? '' : `<button class="x" data-action="rmsession" data-sid="${s.id}" title="Borrar sesión" aria-label="Borrar sesión">×</button>`}</td>
       </tr>`;
   }).join('');
   return `
-    <section class="card sessions">
+    <section class="sessions">
       <details id="sessDetails" ${sessionsOpen ? 'open' : ''}>
-        <summary>Sesiones de tiempo (${p.sessions.length})</summary>
-        <div class="table-wrap"><table>${rows}</table></div>
+        <summary>Sesiones de tiempo · ${p.sessions.length}</summary>
+        <div class="table-wrap"><table class="log">
+          <thead><tr><th>Fecha</th><th>Horario</th><th class="num">Duración</th><th>Ronda</th><th></th></tr></thead>
+          <tbody>${rows}</tbody></table></div>
       </details>
     </section>`;
 }
@@ -439,22 +502,34 @@ function renderSessions(p) {
 function tick() {
   $$('[data-timer]').forEach((e) => {
     const p = getProject(e.dataset.timer);
-    if (p) e.textContent = e.dataset.fmt === 'short' ? fmtShort(projectTime(p)) : fmtClock(projectTime(p));
+    if (!p) return;
+    const ms = projectTime(p);
+    if (e.dataset.fmt === 'short') e.textContent = fmtShort(ms);
+    else e.innerHTML = fmtClockHTML(ms);
   });
   $$('[data-round-timer]').forEach((e) => {
     const [id, ri] = e.dataset.roundTimer.split(':');
     const p = getProject(id);
-    if (p) e.textContent = e.dataset.fmt === 'clock' ? fmtClock(roundTime(p, +ri)) : fmtShort(roundTime(p, +ri));
+    if (p) e.textContent = fmtShort(roundTime(p, +ri));
   });
   $$('[data-sess]').forEach((e) => {
     const [pid, sid] = e.dataset.sess.split(':');
     const s = getProject(pid)?.sessions.find((x) => x.id === sid);
     if (s) e.textContent = fmtShort((s.end ?? now()) - s.start);
   });
+  const dial = $('[data-dial]');
+  if (dial) {
+    const p = getProject(dial.dataset.dial);
+    if (p) {
+      const sec = Math.floor(projectTime(p) / 1000);
+      $('[data-dial-sec]', dial).style.transform = `rotate(${sec * 6}deg)`;
+      $('[data-dial-min]', dial).style.transform = `rotate(${sec * 0.1}deg)`;
+    }
+  }
   const t = $('[data-today]');
   if (t) t.textContent = fmtShort(todayMs());
   const a = activeSession();
-  document.title = a ? `⏱ ${fmtClock(projectTime(a.p))} · ${a.p.name}` : 'Clock Management';
+  document.title = a ? `${fmtClock(projectTime(a.p))} · ${a.p.name}` : 'Clock Management';
 }
 
 /* ---------- efectos: confeti, texto flotante, sonido ---------- */
@@ -468,14 +543,16 @@ function fxResize() {
 }
 fxResize();
 addEventListener('resize', fxResize);
-const COLORS = ['#8b5cf6', '#22d3ee', '#34d399', '#fbbf24', '#f472b6', '#60a5fa'];
+// Papelitos con los colores de la hoja: amarillo señal, tinta, verde, rojo y papel.
+const confettiColors = () => [cssVar('--signal'), cssVar('--ink'), cssVar('--signal'), cssVar('--go'), cssVar('--stop'), cssVar('--sheet')];
 function burst(x, y, count = 30, power = 1) {
   if (reduceMotion) return;
+  const colors = confettiColors();
   for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2, v = (2 + Math.random() * 5) * power;
     fx.parts.push({
       x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 3 * power, age: 0, life: 55 + Math.random() * 45,
-      size: 4 + Math.random() * 5, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, color: COLORS[i % COLORS.length],
+      size: 4 + Math.random() * 5, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, color: colors[i % colors.length],
     });
   }
   if (!fx.raf) fx.raf = requestAnimationFrame(fxLoop);
@@ -497,7 +574,7 @@ function fxLoop() {
 }
 function floatText(x, y, text) {
   const d = document.createElement('div');
-  d.className = 'float-xp'; d.textContent = text;
+  d.className = 'float-xp'; d.textContent = `${text} XP`;
   d.style.left = `${x}px`; d.style.top = `${y}px`;
   document.body.appendChild(d);
   setTimeout(() => d.remove(), 1200);
@@ -541,15 +618,24 @@ function celebrateProject(p) {
   const o = document.createElement('div');
   o.className = 'overlay';
   o.innerHTML = `
-    <div class="trophy-card" role="dialog" aria-label="Proyecto completado">
-      <div class="big-emoji">🏆</div>
-      <h2>¡${esc(p.name)} completado!</h2>
-      <p class="muted">${p.rounds.length} rondas · ${fmtShort(projectTime(p))} en total · +${XP.project} XP</p>
-      <button class="primary">¡Vamos por el siguiente!</button>
+    <div class="finish-card" role="dialog" aria-label="Proyecto completado">
+      <span class="stamp">Completado</span>
+      <h2>${esc(p.name)}</h2>
+      <p>${p.rounds.length} rondas · ${fmtShort(projectTime(p))} en total · +${XP.project} XP</p>
+      <div class="finish-actions">
+        <button class="btn btn-solid" data-finish="new"><span class="tri"></span>Nuevo y arrancar</button>
+        <button class="btn" data-finish="close">Cerrar</button>
+      </div>
     </div>`;
-  o.addEventListener('click', (e) => { if (e.target === o || e.target.tagName === 'BUTTON') o.remove(); });
+  o.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-finish]');
+    if (e.target !== o && !b) return;
+    e.stopPropagation();
+    o.remove();
+    if (b?.dataset.finish === 'new') createProject();
+  });
   document.body.appendChild(o);
-  o.querySelector('button').focus();
+  o.querySelector('[data-finish="close"]').focus();
 }
 
 let toastTimer;
@@ -577,6 +663,9 @@ document.addEventListener('click', (e) => {
     case 'reopen': if (p) reopenRound(p, +t.dataset.ri); break;
     case 'delete': if (p) deleteProject(p); break;
     case 'rmsession': if (p) deleteSession(p, t.dataset.sid); break;
+    case 'away-keep': resolveAway('keep'); break;
+    case 'away-resume': resolveAway('resume'); break;
+    case 'away-stop': resolveAway('stop'); break;
   }
 });
 
@@ -603,7 +692,8 @@ document.addEventListener('toggle', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.target.id === 'projName' && e.key === 'Enter') { e.target.blur(); return; }
   if (e.ctrlKey || e.metaKey || e.altKey || $('dialog[open]') || $('.overlay')) return;
-  if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(e.target.tagName)) return;
+  // En botones también respondemos (si no, tras un clic los atajos dejan de servir); Enter sigue activando el botón.
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable) return;
   const p = selected();
   if (!p) return;
   if (e.code === 'Space') {
@@ -641,8 +731,9 @@ $('#fileImport').addEventListener('change', async (e) => {
     if (!Array.isArray(data.projects)) throw new Error('formato');
     if (!confirm(`¿Importar ${data.projects.length} proyecto(s)? Esto reemplaza los datos actuales.`)) return;
     state = normalize(data);
+    setAway(null);
     commit();
-    toast('📥 Datos importados');
+    toast('Datos importados.');
   } catch { toast('Ese archivo no parece un respaldo válido.'); }
 });
 
@@ -652,11 +743,11 @@ function renderTpl() {
   $('#tplRounds').innerHTML = tplWork.map((r, i) => `
     <fieldset class="tpl-round" data-i="${i}">
       <div class="tpl-row">
-        <input name="short" class="tpl-short" value="${esc(r.short)}" maxlength="4" aria-label="Etiqueta corta" placeholder="A">
-        <input name="name" class="tpl-name" value="${esc(r.name)}" aria-label="Nombre de la ronda" placeholder="Nombre de la ronda">
+        <input id="tplShort${i}" name="short" class="tpl-short" value="${esc(r.short)}" maxlength="4" aria-label="Etiqueta corta" placeholder="A">
+        <input id="tplName${i}" name="name" class="tpl-name" value="${esc(r.name)}" aria-label="Nombre de la ronda" placeholder="Nombre de la ronda">
         <button type="button" class="x" data-tpl-rm="${i}" title="Quitar ronda" aria-label="Quitar ronda">×</button>
       </div>
-      <textarea name="steps" rows="3" placeholder="Un paso por línea">${esc(r.steps.join('\n'))}</textarea>
+      <textarea id="tplSteps${i}" name="steps" rows="3" placeholder="Un paso por línea">${esc(r.steps.join('\n'))}</textarea>
     </fieldset>`).join('');
 }
 function readTpl() {
@@ -693,8 +784,13 @@ $('#tplForm').addEventListener('submit', (e) => {
 });
 
 /* ---------- arranque ---------- */
+away = state.away || null;
+detectAway();
 if (!selected() && state.projects.length) state.selectedId = state.projects[0].id;
 renderAll();
+if (away) toast('Un cronómetro siguió corriendo mientras no estabas.');
 setInterval(tick, 1000);
-// Guarda también al cambiar de pestaña, por si acaso.
+// Marca de "página abierta" cada 15 s: así sabemos cuándo se cerró el navegador.
+setInterval(save, 15000);
+addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
