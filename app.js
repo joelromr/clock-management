@@ -12,11 +12,25 @@ const AWAY_THRESHOLD = 10 * 60 * 1000; // a partir de 10 min sin la página abie
 const HOLD_MS = 1300;                   // cuánto hay que mantener "Pausar" cuando llevas ritmo
 
 // Ritmo: minutos seguidos sin pausar → multiplicador de XP.
+// Meta: tramos de 2 h sin pausa. Entre 30 min y la meta, pausar pide mantener presionado;
+// después de la meta la pausa es libre ("pit stop merecido").
 const PACE = [
   { min: 0, mult: 1, label: 'Calentando' },
-  { min: 20, mult: 1.5, label: 'En ritmo' },
-  { min: 45, mult: 2, label: 'A fondo' },
+  { min: 30, mult: 1.5, label: 'En ritmo' },
+  { min: 60, mult: 2, label: 'A fondo' },
+  { min: 90, mult: 2.5, label: 'Vuelta rápida' },
+  { min: 120, mult: 3, label: 'Tramo completo' },
 ];
+const GOAL_MIN = PACE[PACE.length - 1].min;
+
+// Modo prueba: datos en otra llave y reloj que se puede adelantar.
+const DEBUG_KEY = 'clock-management:debug';
+const MODE_KEY = 'clock-management:mode';
+let debugMode = false;
+try { debugMode = localStorage.getItem(MODE_KEY) === 'debug'; } catch { /* sin storage */ }
+const storageKey = () => (debugMode ? DEBUG_KEY : STORAGE_KEY);
+let timeOffset = 0; // ms que se adelantó el reloj (solo en modo prueba)
+let frozen = false; // true justo antes de recargar al cambiar de modo, para no sobrescribir
 
 const DEFAULT_TPL_ID = 'tpl-default';
 const DEFAULT_ROUNDS = [
@@ -30,7 +44,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const clone = (o) => JSON.parse(JSON.stringify(o));
-const now = () => Date.now();
+const now = () => Date.now() + timeOffset;
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -89,19 +103,21 @@ function normalize(s) {
 }
 function load() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey());
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 }
 function save() {
+  if (frozen) return;
   state.lastSeen = now();
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  try { localStorage.setItem(storageKey(), JSON.stringify(state)); }
   catch {
     if (!storageWarned) { storageWarned = true; toast('No se pudo guardar en el navegador. Usa Exportar para respaldar.'); }
   }
 }
 
 let state = normalize(load());
+if (debugMode) timeOffset = state.debugOffset || 0;
 let flash = null;   // { pid, ri?, sid? } — qué animar en el próximo render
 let broke = false;  // el próximo render sacude el reloj (se rompió el ritmo)
 let away = null;    // { pid, sid, from } — cronómetro que siguió corriendo con la página cerrada
@@ -164,7 +180,11 @@ function pace(p) {
   return { ...PACE[idx], idx, minutes, next: PACE[idx + 1] || null };
 }
 const currentMult = (p) => (isRunning(p) ? pace(p)?.mult ?? 1 : 1);
-const needsHold = (p) => !!p && state.settings.friction && isRunning(p) && (pace(p)?.mult ?? 1) > 1;
+function needsHold(p) {
+  if (!p || !state.settings.friction || !isRunning(p)) return false;
+  const pc = pace(p);
+  return !!pc && pc.mult > 1 && pc.minutes < GOAL_MIN;
+}
 
 /* --- XP --- */
 function achievementTimes() {
@@ -240,8 +260,14 @@ function startTimer(p) {
 }
 function stopTimer() { const a = activeSession(); if (a) a.s.end = now(); setAway(null); }
 function toggleTimer(p) {
-  if (isRunning(p)) { stopTimer(); sfx('stop'); }
-  else { startTimer(p); sfx('start'); }
+  if (isRunning(p)) {
+    const pc = pace(p);
+    stopTimer();
+    if (pc && pc.minutes >= GOAL_MIN) {
+      sfx('round');
+      toast(`Pit stop merecido: ${fmtShort(pc.minutes * 60000)} seguidos. Descansa y vuelve por otro tramo.`);
+    } else sfx('stop');
+  } else { startTimer(p); sfx('start'); }
   commit();
 }
 // Cuando cambia la ronda con el cronómetro corriendo, cortamos la sesión para atribuir bien el tiempo.
@@ -425,7 +451,93 @@ function resolveAway(mode) {
 }
 
 /* ---------- render ---------- */
-function renderAll() { renderStats(); renderMenu(); renderList(); renderMain(); tick(); }
+function renderAll() { renderStats(); renderMenu(); renderList(); renderMain(); renderDebug(); tick(); }
+
+/* --- footer de debug --- */
+function debugPaceText() {
+  const a = activeSession();
+  if (!a) return 'Ningún cronómetro corriendo.';
+  const pc = pace(a.p);
+  return `${esc(a.p.name)}: ${Math.floor(pc.minutes)} min seguidos · ${pc.label} ×${pc.mult} · ${needsHold(a.p) ? 'pausa sostenida' : 'pausa libre'}`;
+}
+function renderDebug() {
+  $('#debugBanner').hidden = !debugMode;
+  document.body.classList.toggle('debug-mode', debugMode);
+  const dis = debugMode ? '' : 'disabled';
+  $('#debugBody').innerHTML = `
+    <div class="debug-row">
+      <span class="debug-label">Modo prueba</span>
+      <button class="btn btn-small ${debugMode ? 'btn-solid' : ''}" data-debug="toggle">${debugMode ? 'Salir del modo prueba' : 'Entrar al modo prueba'}</button>
+      <span class="debug-note">${debugMode
+        ? 'Trabajas sobre una copia aparte. Tus datos reales siguen intactos.'
+        : 'Copia tus proyectos a un espacio aparte para probar sin tocarlos.'}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">Reloj simulado</span>
+      <b class="debug-val">+${fmtShort(timeOffset)}</b>
+      ${[1, 10, 30, 60].map((m) => `<button class="btn btn-small" data-debug="warp" data-min="${m}" ${dis}>+${m < 60 ? `${m} min` : '1 h'}</button>`).join('')}
+      <button class="btn btn-small" data-debug="away" ${dis}>Simular navegador cerrado 15 min</button>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">Ritmo</span>
+      <span class="debug-note" id="debugPace">${debugPaceText()}</span>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">Tramos</span>
+      <span class="debug-note">${PACE.map((t) => `${t.min} min · ${t.label} ×${t.mult}`).join(' / ')}. Pausa sostenida entre ${PACE[1].min} y ${GOAL_MIN} min.</span>
+    </div>
+    ${debugMode ? `
+    <div class="debug-row">
+      <span class="debug-label">Datos de prueba</span>
+      <button class="btn btn-small" data-debug="reset">Reiniciar con mis datos reales</button>
+      <button class="btn btn-small" data-debug="blank">Empezar en blanco</button>
+    </div>` : ''}`;
+}
+function switchMode(on) {
+  save();
+  frozen = true; // que el pagehide no escriba encima al recargar
+  try {
+    if (on && !localStorage.getItem(DEBUG_KEY)) localStorage.setItem(DEBUG_KEY, localStorage.getItem(STORAGE_KEY) || '');
+    localStorage.setItem(MODE_KEY, on ? 'debug' : 'real');
+  } catch { /* sin storage */ }
+  location.reload();
+}
+function resetDebug(copyReal) {
+  if (!debugMode) return;
+  frozen = true;
+  try { localStorage.setItem(DEBUG_KEY, copyReal ? localStorage.getItem(STORAGE_KEY) || '' : ''); } catch { /* sin storage */ }
+  location.reload();
+}
+function warp(min) {
+  if (!debugMode) return;
+  state.debugOffset = (state.debugOffset || 0) + min * 60000;
+  timeOffset = state.debugOffset;
+  save();
+  renderAll();
+}
+function simulateAway(min) {
+  if (!debugMode) return;
+  if (!activeSession()) { toast('Primero inicia un cronómetro.'); return; }
+  save();
+  const last = state.lastSeen;
+  state.debugOffset = (state.debugOffset || 0) + min * 60000;
+  timeOffset = state.debugOffset;
+  state.lastSeen = last; // la página "no estuvo abierta" durante ese lapso
+  detectAway();
+  commit();
+  if (away) toast('Un cronómetro siguió corriendo mientras no estabas.');
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-debug]');
+  if (!b || b.disabled) return;
+  switch (b.dataset.debug) {
+    case 'toggle': case 'exit': switchMode(!debugMode); break;
+    case 'warp': warp(+b.dataset.min); break;
+    case 'away': simulateAway(15); break;
+    case 'reset': resetDebug(true); break;
+    case 'blank': resetDebug(false); break;
+  }
+});
 
 function renderStats() {
   const xp = xpTotal(), lvl = level(), into = xp % XP_PER_LEVEL, st = streak();
@@ -488,18 +600,21 @@ function renderAway(p) {
 }
 
 function paceHTML(p) {
-  const max = PACE[PACE.length - 1].min;
+  const max = GOAL_MIN;
+  const minLabel = (m) => (m % 60 ? `${m} min` : `${m / 60} h`);
   const marks = PACE.slice(1).map((t) => `<span class="pace-mark" style="left:${(t.min / max) * 100}%"><em>×${t.mult}</em></span>`).join('');
   const pc = pace(p);
   if (!pc) {
     return `<div class="pace-bar"><i style="width:0%"></i>${marks}</div>
-      <div class="pace-text">Sin ritmo. Arranca y no pauses: ×${PACE[1].mult} a los ${PACE[1].min} min, ×${PACE[2].mult} a los ${PACE[2].min}.</div>`;
+      <div class="pace-text">Sin ritmo. Meta: ${minLabel(GOAL_MIN)} sin pausa (×${PACE[PACE.length - 1].mult}). El ×${PACE[1].mult} llega a los ${minLabel(PACE[1].min)}.</div>`;
   }
   const fill = Math.min(pc.minutes / max, 1) * 100;
   const run = fmtShort(pc.minutes * 60000);
-  const next = pc.next ? ` · ×${pc.next.mult} a los ${pc.next.min} min` : '';
-  return `<div class="pace-bar tier-${pc.idx}"><i style="width:${fill}%"></i>${marks}</div>
-    <div class="pace-text"><b>${pc.label} ×${pc.mult}</b> · ${run} sin pausa${next}</div>`;
+  const tail = pc.next
+    ? ` · ×${pc.next.mult} a los ${minLabel(pc.next.min)}`
+    : ' · meta cumplida, la pausa es libre';
+  return `<div class="pace-bar tier-${pc.idx} ${pc.next ? '' : 'goal'}"><i style="width:${fill}%"></i>${marks}</div>
+    <div class="pace-text"><b>${pc.label} ×${pc.mult}</b> · ${run} sin pausa${tail}</div>`;
 }
 
 function tplSelectHTML(p) {
@@ -680,6 +795,8 @@ function tick() {
   const a = activeSession();
   document.title = a ? `${fmtClock(projectTime(a.p))} · ${a.p.name}` : 'Clock Management';
   checkPace(a);
+  const dp = $('#debugPace');
+  if (dp) dp.innerHTML = debugPaceText();
 }
 function checkPace(a) {
   if (!a) { paceSeen = null; return; }
@@ -687,12 +804,19 @@ function checkPace(a) {
   const prev = paceSeen;
   paceSeen = { pid: a.p.id, idx: pc.idx };
   if (prev && prev.pid === a.p.id && pc.idx > prev.idx) {
-    sfx('level');
-    toast(`${pc.label}: desde ahora cada logro vale ×${pc.mult}.`);
+    const goal = !pc.next;
+    sfx(goal ? 'project' : 'level');
+    toast(goal
+      ? `Tramo completo: ${fmtShort(pc.minutes * 60000)} sin pausa. Cada logro vale ×${pc.mult} y la pausa ya es libre.`
+      : `${pc.label}: desde ahora cada logro vale ×${pc.mult}.`);
     if (state.selectedId === a.p.id && !holdTimer) {
       renderAll();
       const el = $('.pace-bar');
-      if (el) { const pt = centerOf(el); burst(pt.x, pt.y, 40, 1); }
+      if (el) {
+        const pt = centerOf(el);
+        burst(pt.x, pt.y, goal ? 80 : 40, goal ? 1.4 : 1);
+        if (goal) setTimeout(() => burst(pt.x - 120, pt.y, 50, 1.2), 200);
+      }
     }
   }
 }
@@ -1093,5 +1217,10 @@ setInterval(tick, 1000);
 setInterval(save, 15000);
 addEventListener('pagehide', save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+// El footer de debug recuerda si lo dejaste abierto (y en modo prueba siempre abre).
+try { $('#debugDetails').open = debugMode || localStorage.getItem('clock-management:debug-open') === '1'; } catch { /* sin storage */ }
+$('#debugDetails').addEventListener('toggle', (e) => {
+  try { localStorage.setItem('clock-management:debug-open', e.target.open ? '1' : '0'); } catch { /* sin storage */ }
+});
 // Enter dentro de los diálogos no debe cerrarlos sin guardar.
 $$('dialog form').forEach((f) => f.addEventListener('submit', (e) => e.preventDefault()));

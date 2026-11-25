@@ -25,14 +25,17 @@ Luego entra a <http://localhost:5173>.
 - **Plantillas**: varias plantillas, una predeterminada para proyectos nuevos. Editarlas no cambia proyectos existentes. En el encabezado de cada proyecto puedes cambiar su plantilla: si el proyecto no ha iniciado, se aplica directo; si ya tiene avance, pide confirmación (el avance se pierde, el tiempo se conserva sin ronda asignada).
 - **Ritmo** (tiempo seguido sin pausar):
 
-  | Minutos sin pausa | Ritmo | XP |
+  | Sin pausa | Ritmo | XP |
   | --- | --- | --- |
-  | 0–20 | Calentando | ×1 |
-  | 20–45 | En ritmo | ×1.5 |
-  | 45+ | A fondo | ×2 |
+  | 0–30 min | Calentando | ×1 |
+  | 30–60 min | En ritmo | ×1.5 |
+  | 60–90 min | A fondo | ×2 |
+  | 90–120 min | Vuelta rápida | ×2.5 |
+  | 2 h o más | Tramo completo | ×3 |
 
-  Cambiar de ronda no rompe el ritmo; pausar sí.
-- **Pausa con fricción**: con ritmo ×1.5 o más, *Pausar* (o `Espacio`) hay que mantenerlo presionado ~1.3 s. Un clic corto solo te avisa qué perderías. Se puede apagar en el menú.
+  La meta es un tramo de 2 h sin pausa (en una jornada de 4.5–5 h, ~2 tramos). Cambiar de ronda no rompe el ritmo; pausar sí.
+- **Pausa con fricción**: entre 30 min y 2 h, *Pausar* (o `Espacio`) hay que mantenerlo presionado ~1.3 s. Un clic corto solo te avisa qué perderías. Después de 2 h la pausa es libre: "pit stop merecido". Se puede apagar en el menú.
+- **Debug** (footer, al final de la página): *modo prueba* con datos aparte (copia de los reales), reloj simulado (+1 min, +10 min, +30 min, +1 h), simular navegador cerrado 15 min, y reiniciar la prueba. Una banda amarilla arriba indica que estás en modo prueba.
 - **XP**: paso 10 × ritmo, ronda 50 × ritmo, proyecto 200. Nivel cada 500 XP.
 - **Barra superior**: tiempo de hoy, logros de hoy, racha de días y nivel.
 - **Menú**: sonido, tema (sistema / claro / oscuro), pausa con fricción, exportar e importar respaldo.
