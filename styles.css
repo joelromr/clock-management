@@ -511,6 +511,22 @@ dialog::backdrop { background: color-mix(in srgb, var(--paper) 70%, transparent)
 }
 @keyframes vignette { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 0; } }
 
+/* Descontar tiempo */
+.deduct { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.deduct-label { font: 600 11px var(--f-display); text-transform: uppercase; letter-spacing: .12em; color: var(--ink-2); margin-right: 2px; }
+.chip {
+  font: 600 12px var(--f-mono); padding: 3px 8px; border: 1px solid var(--rule); border-radius: 2px;
+  color: var(--ink-2); background: transparent; transition: color .15s, border-color .15s, background .15s;
+}
+.chip:hover { color: var(--ink); border-color: var(--ink); }
+.chip:active { transform: translateY(1px); }
+.chip-undo { border-style: dashed; }
+.deduct-total { font: 400 12px var(--f-mono); color: var(--ink-2); }
+.clock.dip { animation: dip .5s cubic-bezier(.2, .8, .2, 1); }
+@keyframes dip { 30% { transform: translateY(4px); color: var(--go); } }
+.float-xp.minus { background: var(--sheet); color: var(--ink); }
+.log small.deducted { display: block; font-size: 11px; color: var(--ink-2); }
+
 /* Feedback general: entra lo nuevo, sale lo borrado, destella lo que cambió */
 main.enter > * { animation: rise .32s cubic-bezier(.2, .8, .2, 1) both; }
 main.enter > *:nth-child(2) { animation-delay: 30ms; }

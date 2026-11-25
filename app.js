@@ -139,10 +139,12 @@ function activeSession() {
   }
   return null;
 }
+// Tiempo neto de una sesión: lo transcurrido menos lo que descontaste (baño, interrupciones).
+const sessionMs = (s, n = now()) => Math.max(0, (s.end ?? n) - s.start - (s.deducted || 0));
 function sessionsTime(p, filter) {
   const n = now();
   let t = 0;
-  for (const s of p.sessions) if (!filter || filter(s)) t += (s.end ?? n) - s.start;
+  for (const s of p.sessions) if (!filter || filter(s)) t += sessionMs(s, n);
   return t;
 }
 const projectTime = (p) => sessionsTime(p);
@@ -218,7 +220,7 @@ function todayMs() {
   let t = 0;
   for (const p of state.projects) for (const s of p.sessions) {
     const a = Math.max(s.start, s0), b = s.end ?? n;
-    if (b > a) t += b - a;
+    if (b > a) t += Math.max(0, b - a - (s.deducted || 0));
   }
   return t;
 }
@@ -299,6 +301,53 @@ function splitRunningSession(p) {
   const t = now();
   s.end = t;
   if (!isDone(p)) p.sessions.push({ id: uid(), start: t, end: null, round: p.currentRound });
+}
+
+/* --- descontar tiempo (sin pausar ni romper el ritmo) --- */
+let lastDeduct = null; // { pid, sid, ms } — para "Deshacer"
+const deductTarget = (p) => p.sessions.find((s) => s.end == null) || p.sessions[p.sessions.length - 1];
+function deductTime(p, min, btn) {
+  const s = deductTarget(p);
+  if (!s) return;
+  const ms = Math.min(min * 60000, sessionMs(s));
+  if (ms < 1000) { sfx('error'); toast('Esta sesión no tiene tiempo para descontar.'); return; }
+  const pt = btn ? centerOf(btn) : null;
+  s.deducted = (s.deducted || 0) + ms;
+  lastDeduct = { pid: p.id, sid: s.id, ms };
+  commit();
+  sfx('deduct');
+  const clock = $('.clock');
+  if (clock) { clock.classList.remove('dip'); void clock.offsetWidth; clock.classList.add('dip'); }
+  if (pt) floatText(pt.x, pt.y - 18, `−${fmtShort(ms)}`);
+  toast(`Descontados ${fmtShort(ms)} de esta sesión. El ritmo sigue.`);
+}
+function undoDeduct() {
+  const d = lastDeduct;
+  const s = d && getProject(d.pid)?.sessions.find((x) => x.id === d.sid);
+  lastDeduct = null;
+  if (!s) { commit(); return; }
+  s.deducted = Math.max(0, (s.deducted || 0) - d.ms);
+  if (!s.deducted) delete s.deducted;
+  commit();
+  sfx('undo');
+  toast(`Descuento deshecho: +${fmtShort(d.ms)}.`);
+}
+
+/* --- favicon: punto rojo mientras el reloj corre --- */
+const FAVICON_RUNNING = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect x="2" y="2" width="60" height="60" rx="10" fill="#f5c400"/>
+  <rect x="26" y="5" width="12" height="7" rx="2" fill="#15181d"/>
+  <circle cx="32" cy="36" r="20" fill="#f8f9f6" stroke="#15181d" stroke-width="5"/>
+  <line x1="32" y1="36" x2="42" y2="27" stroke="#c8372d" stroke-width="4.5" stroke-linecap="round"/>
+  <circle cx="32" cy="36" r="3.5" fill="#15181d"/>
+  <circle cx="50" cy="14" r="11" fill="#c8372d" stroke="#f8f9f6" stroke-width="3"/>
+</svg>`)}`;
+let faviconRunning = null;
+function setFavicon(running) {
+  if (running === faviconRunning) return;
+  faviconRunning = running;
+  const link = $('#favicon');
+  if (link) link.href = running ? FAVICON_RUNNING : 'favicon.svg';
 }
 
 /* --- pausa sostenida --- */
@@ -918,6 +967,7 @@ function renderMain() {
         <div class="clock-sub">${done
           ? 'Proyecto completado'
           : `En <b>${esc(cur.name)}</b> llevas <span data-round-timer="${p.id}:${p.currentRound}" data-fmt="short"></span>`}</div>
+        ${renderDeduct(p)}
       </div>
       <button class="btn btn-solid play ${hold ? `needs-hold hold-${pace(p).idx}` : ''}" data-action="toggle">${playLabel}</button>
       <div class="pace" data-pace="${p.id}"></div>
@@ -927,6 +977,21 @@ function renderMain() {
     ${renderPath(p)}
     ${done ? renderDoneCard(p) : renderRoundCard(p)}
     ${renderSessions(p)}`;
+}
+
+// Botones para quitar minutos que no trabajaste (sin pausar). Actúan sobre la sesión en curso, o la última.
+function renderDeduct(p) {
+  const s = deductTarget(p);
+  if (!s) return '';
+  const undo = lastDeduct && lastDeduct.pid === p.id && lastDeduct.sid === s.id
+    ? `<button class="chip chip-undo" data-action="undo-deduct">Deshacer −${fmtShort(lastDeduct.ms)}</button>` : '';
+  const total = s.deducted ? `<span class="deduct-total">${fmtShort(s.deducted)} descontados ${s.end == null ? 'en esta sesión' : 'de la última sesión'}</span>` : '';
+  return `
+    <div class="deduct" title="Quita minutos que no trabajaste (p. ej. ir al baño) sin pausar ni romper el ritmo">
+      <span class="deduct-label">Descontar</span>
+      ${[1, 3, 5].map((m) => `<button class="chip" data-action="deduct" data-min="${m}">−${m} min</button>`).join('')}
+      ${undo}${total}
+    </div>`;
 }
 
 function renderEmpty() {
@@ -1011,7 +1076,7 @@ function renderSessions(p) {
       <tr class="${live ? 'live-row' : ''}" data-sid="${s.id}">
         <td>${fmtDate(s.start)}</td>
         <td class="mono">${fmtTime(s.start)} – ${live ? 'en curso' : fmtTime(s.end)}</td>
-        <td class="num">${live ? `<span data-sess="${p.id}:${s.id}"></span>` : fmtShort(s.end - s.start)}</td>
+        <td class="num">${live ? `<span data-sess="${p.id}:${s.id}"></span>` : fmtShort(sessionMs(s))}${s.deducted ? `<small class="deducted">−${fmtShort(s.deducted)}</small>` : ''}</td>
         <td><span class="tag">${esc(rn)}</span></td>
         <td>${live ? '' : `<button class="x" data-action="rmsession" data-sid="${s.id}" title="Borrar sesión" aria-label="Borrar sesión">×</button>`}</td>
       </tr>`;
@@ -1044,7 +1109,7 @@ function tick() {
   $$('[data-sess]').forEach((e) => {
     const [pid, sid] = e.dataset.sess.split(':');
     const s = getProject(pid)?.sessions.find((x) => x.id === sid);
-    if (s) e.textContent = fmtShort((s.end ?? now()) - s.start);
+    if (s) e.textContent = fmtShort(sessionMs(s));
   });
   $$('[data-pace]').forEach((e) => { const p = getProject(e.dataset.pace); if (p) e.innerHTML = paceHTML(p); });
   const dial = $('[data-dial]');
@@ -1060,6 +1125,7 @@ function tick() {
   if (t) t.textContent = fmtShort(todayMs());
   const a = activeSession();
   document.title = a ? `${fmtClock(projectTime(a.p))} · ${a.p.name}` : 'Clock Management';
+  setFavicon(!!a);
   checkPace(a);
   const dp = $('#debugPace');
   if (dp) dp.innerHTML = debugPaceText();
@@ -1129,8 +1195,9 @@ function fxLoop() {
 }
 function floatText(x, y, xp, mult = 1) {
   const d = document.createElement('div');
-  d.className = `float-xp${mult > 1 ? ' boosted' : ''}`;
-  d.textContent = `+${xp} XP${mult > 1 ? ` ×${mult}` : ''}`;
+  const text = typeof xp === 'string'; // texto libre (p. ej. "−5m") en lugar de XP
+  d.className = `float-xp${mult > 1 ? ' boosted' : ''}${text ? ' minus' : ''}`;
+  d.textContent = text ? xp : `+${xp} XP${mult > 1 ? ` ×${mult}` : ''}`;
   d.style.left = `${x}px`; d.style.top = `${y}px`;
   document.body.appendChild(d);
   setTimeout(() => d.remove(), 1200);
@@ -1162,6 +1229,8 @@ const SFX = {
   toggleOff: [[1175, 880], 0.05, 0.04, 'triangle', 0.07],
   save: [[659, 988], 0.1, 0.07, 'triangle', 0.12],
   error: [[220, 208], 0.09, 0.07, 'square', 0.04],
+  deduct: [[988, 784, 659], 0.05, 0.045, 'triangle', 0.08], // como rebobinar
+
   shutter: [[1800, 2400, 600], 0.03, 0.045, 'square', 0.05],
 };
 function sfx(name) {
@@ -1269,6 +1338,8 @@ document.addEventListener('click', (e) => {
     case 'away-keep': resolveAway('keep'); break;
     case 'away-resume': resolveAway('resume'); break;
     case 'away-stop': resolveAway('stop'); break;
+    case 'deduct': if (p) deductTime(p, +t.dataset.min, t); break;
+    case 'undo-deduct': undoDeduct(); break;
   }
 });
 
