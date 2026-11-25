@@ -144,7 +144,13 @@ function activeSession() {
   return null;
 }
 // Tiempo neto de una sesión: lo transcurrido menos lo que descontaste (baño, interrupciones).
-const sessionMs = (s, n = now()) => Math.max(0, (s.end ?? n) - s.start - (s.deducted || 0));
+const sessionMs = (s, n = now()) => Math.max(0, (s.end ?? n) - s.start - (s.deducted || 0) - captureMs(s, n));
+// Ausencia que se está midiendo ahora mismo (state.awayCapture): el reloj y el ritmo se congelan.
+function captureMs(s, n = now()) {
+  const c = state.awayCapture;
+  if (!c || c.sid !== s.id) return 0;
+  return Math.max(0, Math.min(n, s.end ?? n) - c.start);
+}
 function sessionsTime(p, filter) {
   const n = now();
   let t = 0;
@@ -172,7 +178,7 @@ const buildRounds = (tpl) => tpl.rounds.map((t) => ({
 function runInfo(p) {
   const act = p.sessions.find((s) => s.end == null);
   if (!act) return null;
-  let start = act.start, deducted = act.deducted || 0, found = true;
+  let start = act.start, deducted = (act.deducted || 0) + captureMs(act), found = true;
   while (found) {
     found = false;
     for (const s of p.sessions) if (s.end === start) { start = s.start; deducted += s.deducted || 0; found = true; break; }
@@ -225,7 +231,7 @@ function todayMs() {
   let t = 0;
   for (const p of state.projects) for (const s of p.sessions) {
     const a = Math.max(s.start, s0), b = s.end ?? n;
-    if (b > a) t += Math.max(0, b - a - (s.deducted || 0));
+    if (b > a) t += Math.max(0, b - a - (s.deducted || 0) - captureMs(s, n));
   }
   return t;
 }
@@ -282,11 +288,15 @@ function createProject() {
 
 function startTimer(p) {
   const a = activeSession();
-  if (a) a.s.end = now();
+  if (a) { finishCapture(); a.s.end = now(); }
   setAway(null);
   p.sessions.push({ id: uid(), start: now(), end: null, round: isDone(p) ? null : p.currentRound });
 }
-function stopTimer() { const a = activeSession(); if (a) a.s.end = now(); setAway(null); }
+function stopTimer() {
+  const a = activeSession();
+  if (a) { finishCapture(); a.s.end = now(); } // si estabas "fuera", esa ausencia se descuenta antes de cerrar
+  setAway(null);
+}
 function toggleTimer(p) {
   if (isRunning(p)) {
     const pc = pace(p);
@@ -304,9 +314,63 @@ function splitRunningSession(p) {
   const s = p.sessions.find((x) => x.end == null);
   if (!s) return;
   const t = now();
+  const c = state.awayCapture;
+  const capturing = c && c.sid === s.id;
+  if (capturing) { // lo medido hasta aquí se queda en la sesión que termina; la medición sigue en la nueva
+    const part = Math.max(0, t - c.start);
+    s.deducted = (s.deducted || 0) + part;
+    c.carried = (c.carried || 0) + part;
+  }
   s.end = t;
-  if (!isDone(p)) p.sessions.push({ id: uid(), start: t, end: null, round: p.currentRound });
+  if (!isDone(p)) {
+    const next = { id: uid(), start: t, end: null, round: p.currentRound };
+    p.sessions.push(next);
+    if (capturing) Object.assign(c, { sid: next.id, start: t });
+  } else if (capturing) {
+    state.awayCapture = null;
+  }
 }
+
+/* --- medir ausencia: el reloj y el ritmo se congelan hasta que regresas --- */
+function startCapture(p) {
+  const s = p.sessions.find((x) => x.end == null);
+  if (!s) { sfx('error'); toast('Inicia el cronómetro para medir una ausencia.'); return; }
+  state.awayCapture = { pid: p.id, sid: s.id, start: now(), carried: 0 };
+  commit();
+  sfx('toggleOff');
+  toast('Midiendo ausencia: el reloj y el ritmo se detienen. Pícale a "Regresé" (o Espacio) al volver.');
+}
+// Cierra la medición y descuenta lo medido de la sesión. Devuelve el total fuera (ms).
+function finishCapture() {
+  const c = state.awayCapture;
+  if (!c) return 0;
+  state.awayCapture = null;
+  const p = getProject(c.pid);
+  const s = p?.sessions.find((x) => x.id === c.sid);
+  if (!s) return c.carried || 0;
+  const n = now();
+  const part = Math.max(0, Math.min(n, s.end ?? n) - c.start);
+  const room = Math.max(0, (s.end ?? n) - s.start - (s.deducted || 0));
+  const ms = Math.min(part, room);
+  if (ms > 0) {
+    s.deducted = (s.deducted || 0) + ms;
+    lastDeduct = { pid: p.id, sid: s.id, ms };
+  }
+  return ms + (c.carried || 0);
+}
+function returnFromCapture(btn) {
+  const pt = btn ? centerOf(btn) : null;
+  const total = finishCapture();
+  commit();
+  sfx('deduct');
+  const clock = $('.clock');
+  if (clock) { clock.classList.remove('dip'); void clock.offsetWidth; clock.classList.add('dip'); }
+  if (pt) floatText(pt.x, pt.y - 18, `−${fmtShort(total)}`);
+  toast(total >= 1000
+    ? `Estuviste fuera ${fmtShort(total)}: descontado del tiempo y del ritmo.`
+    : 'Regresaste enseguida: no hubo nada que descontar.');
+}
+const capturingFor = (p) => !!p && state.awayCapture?.pid === p.id;
 
 /* --- descontar tiempo (sin pausar; se resta del tiempo y también del ritmo) --- */
 let lastDeduct = null; // { pid, sid, ms } — para "Deshacer"
@@ -485,6 +549,7 @@ async function applyTemplate(p, tplId) {
       'Cambiar plantilla', true);
     if (!ok) { renderMain(); tick(); return; }
   }
+  if (capturingFor(p)) finishCapture();
   const t = now();
   const running = p.sessions.find((s) => s.end == null);
   for (const s of p.sessions) s.round = null;
@@ -724,6 +789,7 @@ function resolveAway(mode) {
   const s = p?.sessions.find((x) => x.id === away.sid && x.end == null);
   if (s && mode !== 'keep') {
     s.end = away.from; // cortamos la sesión en el momento en que se cerró la página
+    if (state.awayCapture?.sid === s.id) finishCapture(); // la ausencia medida se topa en ese corte
     if (mode === 'resume') p.sessions.push({ id: uid(), start: now(), end: null, round: s.round });
     sfx(mode === 'resume' ? 'start' : 'stop');
   }
@@ -964,10 +1030,10 @@ function renderMain() {
       <button class="btn btn-danger btn-small" data-action="delete">Eliminar</button>
     </section>
 
-    <section class="timer ${running ? 'running' : ''} ${broke ? `broke broke-${broke}` : ''}" data-dial="${p.id}">
+    <section class="timer ${running ? 'running' : ''} ${capturingFor(p) ? 'capturing' : ''} ${broke ? `broke broke-${broke}` : ''}" data-dial="${p.id}">
       ${dialSVG()}
       <div class="timer-info">
-        <div class="status">${running ? '<i class="live"></i>En marcha' : (isStarted(p) ? 'En pausa' : 'Sin iniciar')}</div>
+        <div class="status">${capturingFor(p) ? 'Fuera · reloj detenido' : running ? '<i class="live"></i>En marcha' : (isStarted(p) ? 'En pausa' : 'Sin iniciar')}</div>
         <div class="clock" data-timer="${p.id}" data-fmt="clock"></div>
         <div class="clock-sub">${done
           ? 'Proyecto completado'
@@ -986,14 +1052,26 @@ function renderMain() {
 
 // Botones para quitar minutos que no trabajaste (sin pausar). Actúan sobre la sesión en curso, o la última.
 function renderDeduct(p) {
+  if (capturingFor(p)) {
+    return `
+      <div class="deduct capturing">
+        <span class="deduct-label away-live"><i class="live"></i>Fuera</span>
+        <b class="away-time" data-capture></b>
+        <button class="chip chip-primary" data-action="capture-end">Regresé</button>
+        <span class="deduct-total">Reloj y ritmo detenidos · <kbd>Espacio</kbd> también regresa</span>
+      </div>`;
+  }
   const s = deductTarget(p);
   if (!s) return '';
   const undo = lastDeduct && lastDeduct.pid === p.id && lastDeduct.sid === s.id
     ? `<button class="chip chip-undo" data-action="undo-deduct">Deshacer −${fmtAmount(lastDeduct.ms)}</button>` : '';
   const total = s.deducted ? `<span class="deduct-total">${fmtAmount(s.deducted)} descontados ${s.end == null ? 'en esta sesión' : 'de la última sesión'}</span>` : '';
+  const capture = isRunning(p)
+    ? '<button class="chip chip-primary" data-action="capture-start" title="Congela el reloj y el ritmo hasta que regreses; descuenta lo que tardaste">Medir ausencia</button>' : '';
   return `
-    <div class="deduct" title="Quita minutos que no trabajaste (p. ej. ir al baño) sin pausar. Se restan del tiempo y también del ritmo.">
+    <div class="deduct" title="Quita tiempo que no trabajaste (p. ej. ir al baño) sin pausar. Se resta del tiempo y también del ritmo.">
       <span class="deduct-label">Descontar</span>
+      ${capture}
       ${[1, 3, 5].map((m) => `<button class="chip" data-action="deduct" data-min="${m}">−${m} min</button>`).join('')}
       ${undo}${total}
     </div>`;
@@ -1129,8 +1207,18 @@ function tick() {
   const t = $('[data-today]');
   if (t) t.textContent = fmtShort(todayMs());
   const a = activeSession();
-  document.title = a ? `${fmtClock(projectTime(a.p))} · ${a.p.name}` : 'Clock Management';
-  setFavicon(!!a);
+  const c = state.awayCapture;
+  if (c) {
+    const cs = getProject(c.pid)?.sessions.find((x) => x.id === c.sid);
+    if (!cs) { state.awayCapture = null; save(); } // se borró la sesión o el proyecto
+    else if (cs.end != null) { finishCapture(); save(); renderAll(); return; } // se cerró por otro lado
+  }
+  const away_ = state.awayCapture;
+  $$('[data-capture]').forEach((e) => { e.textContent = fmtShort(Math.max(0, now() - away_?.start) + (away_?.carried || 0)); });
+  document.title = away_
+    ? `Fuera ${fmtShort(now() - away_.start + (away_.carried || 0))} · ${a?.p.name ?? ''}`
+    : a ? `${fmtClock(projectTime(a.p))} · ${a.p.name}` : 'Clock Management';
+  setFavicon(!!a && !away_);
   checkPace(a);
   const dp = $('#debugPace');
   if (dp) dp.innerHTML = debugPaceText();
@@ -1345,6 +1433,8 @@ document.addEventListener('click', (e) => {
     case 'away-stop': resolveAway('stop'); break;
     case 'deduct': if (p) deductTime(p, +t.dataset.min, t); break;
     case 'undo-deduct': undoDeduct(); break;
+    case 'capture-start': if (p) startCapture(p); break;
+    case 'capture-end': returnFromCapture(t); break;
   }
 });
 
@@ -1393,7 +1483,8 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
     e.preventDefault();
     if (e.repeat) return;
-    if (needsHold(p)) startHold(p);
+    if (capturingFor(p)) returnFromCapture($('[data-action="capture-end"]')); // estando fuera, Espacio = "Regresé"
+    else if (needsHold(p)) startHold(p);
     else toggleTimer(p);
   } else if (e.key.toLowerCase() === 'n' && !isDone(p)) {
     e.preventDefault();
