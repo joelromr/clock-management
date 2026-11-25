@@ -4,7 +4,9 @@ Cronómetro de proyectos con **micro-logros**: cada paso que completas avanza el
 
 Sin dependencias ni build. Todo se guarda en el navegador (`localStorage`).
 
-## Cómo abrirlo
+**En línea:** <https://joelromr.github.io/clock-management/> · pruebas: <https://joelromr.github.io/clock-management/tests/>
+
+## Cómo abrirlo en tu computadora
 
 ```powershell
 node serve.js
