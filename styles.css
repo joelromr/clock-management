@@ -339,7 +339,9 @@ table.log { width: 100%; border-collapse: collapse; font-size: 14px; }
 .live-row td { color: var(--stop); }
 
 /* ---------- Vacío ---------- */
-.empty { display: grid; gap: 18px; padding-top: 24px; }
+/* Centrada en vertical cuando cabe; si crece (plantilla larga), los márgenes automáticos se vuelven 0
+   y se extiende hacia abajo con el desplazamiento normal de la página. */
+.empty { display: grid; gap: 18px; margin-block: auto; padding-block: 24px; }
 .empty h2 { font: 700 64px/.95 var(--f-display); text-transform: uppercase; }
 .empty p { margin: 0; color: var(--ink-2); max-width: 46ch; }
 
@@ -381,6 +383,8 @@ table.log { width: 100%; border-collapse: collapse; font-size: 14px; }
   background: var(--ink); color: var(--sheet); padding: 11px 16px; border-radius: var(--r);
   font-size: 14px; opacity: 0; transition: opacity .25s, transform .25s; z-index: 60; pointer-events: none;
   max-width: calc(100vw - 32px);
+  /* Como popover: anula los estilos de fábrica (centrado, borde, fondo) */
+  inset: auto auto 24px 50%; margin: 0; border: 0; overflow: visible; width: max-content;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 .overlay {

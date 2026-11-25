@@ -1487,6 +1487,11 @@ function celebrateProject(p) {
 let toastTimer;
 function toast(msg) {
   const t = $('#toast');
+  // El aviso vive en la capa superior del navegador (popover). Volver a mostrarlo lo pone encima
+  // de cualquier diálogo abierto, así nunca queda detrás del fondo borroso.
+  if (t.showPopover) {
+    try { if (t.matches(':popover-open')) t.hidePopover(); t.showPopover(); } catch { /* navegador viejo: z-index normal */ }
+  }
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
@@ -1940,7 +1945,8 @@ $('#tplName').addEventListener('input', (e) => {
 });
 $('#tplNew').addEventListener('click', () => {
   if (!settleEditor()) return;
-  const t = { id: uid(), name: `Plantilla ${tw.templates.length + 1}`, rounds: clone(DEFAULT_ROUNDS) };
+  // Punto de partida mínimo: una ronda con dos pasos, para crecer con "Duplicar ronda".
+  const t = { id: uid(), name: `Plantilla ${tw.templates.length + 1}`, rounds: [{ short: '01', name: 'Ronda 01', steps: ['Paso 01', 'Paso 02'] }] };
   tw.templates.push(t);
   tw.editId = t.id; tw.ri = 0;
   renderTplDialog();
