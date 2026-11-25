@@ -1138,8 +1138,43 @@ function renderEmpty() {
       <h2>En sus<br>marcas</h2>
       <p>Crea un proyecto y arranca el reloj cuando empieces. Cada paso que marques avanza el riel, estación por estación, hasta la meta. Si no pausas, cada logro vale más.</p>
       <button class="btn btn-solid btn-big" data-action="new">+ Nuevo proyecto</button>
-      ${renderPath(preview)}
+      ${renderSnakePath(preview)}
     </section>`;
+}
+
+// Vista previa de la plantilla en forma de serpiente: avanza a la derecha, baja con una curva,
+// regresa a la izquierda... Así una plantilla larga cabe completa, sin barra de desplazamiento.
+const SNAKE = { station: 42, seg: 90, pad: 48 }; // medidas en px (deben coincidir con styles.css)
+function renderSnakePath(p) {
+  const items = [{ cls: 'done start', box: '', label: `Inicio<small>${fmtDay(p.createdAt)}</small>`, ticks: 0 }];
+  p.rounds.forEach((r, i) => items.push({
+    cls: i === 0 ? 'current' : 'locked', box: esc(r.short), ticks: r.steps.length,
+    label: `<span class="lname">${esc(r.name)}</span>`, title: esc(r.name),
+  }));
+  items.push({ cls: 'goal locked', box: '', label: 'Meta', ticks: 0 });
+  // Cuántas estaciones caben por fila según el ancho disponible.
+  const main = $('#main');
+  const width = (main ? main.clientWidth - 64 : 800) - SNAKE.pad * 2;
+  const perRow = Math.max(2, Math.floor((width - SNAKE.station) / (SNAKE.station + SNAKE.seg)) + 1);
+  const ticks = (n) => `<div class="ticks">${'<i class="tick"></i>'.repeat(n)}</div>`;
+  let html = '';
+  for (let r = 0; r * perRow < items.length; r++) {
+    const row = items.slice(r * perRow, (r + 1) * perRow);
+    const reverse = r % 2 === 1;
+    const more = (r + 1) * perRow < items.length;
+    const cells = row.map((it, j) => `
+      ${j > 0 ? `<div class="seg locked">${ticks(it.ticks)}</div>` : ''}
+      <div class="station ${it.cls}"${it.title ? ` title="${it.title}"` : ''}>
+        <div class="box">${it.box}</div>
+        <div class="label">${it.label}</div>
+      </div>`).join('');
+    html += `
+      <div class="snake-row${reverse ? ' rev' : ''}" style="--per-row:${perRow}">
+        ${cells}
+        ${more ? `<div class="snake-turn ${reverse ? 'left' : 'right'}"></div>` : ''}
+      </div>`;
+  }
+  return `<section class="path snake" aria-label="Recorrido de la plantilla"><div class="snake-track">${html}</div></section>`;
 }
 
 function renderPath(p) {
@@ -1831,5 +1866,11 @@ addEventListener('storage', (e) => {
   }
 });
 try { localStorage.removeItem(`${NS}:debug-open`); } catch { /* llave vieja, ya no se usa */ }
+// La serpiente de la pantalla de inicio se reacomoda si cambia el ancho de la ventana.
+let snakeResize = 0;
+addEventListener('resize', () => {
+  clearTimeout(snakeResize);
+  snakeResize = setTimeout(() => { if (!selected()) renderMain(); }, 150);
+});
 // Enter dentro de los diálogos no debe cerrarlos sin guardar.
 $$('dialog form').forEach((f) => f.addEventListener('submit', (e) => e.preventDefault()));

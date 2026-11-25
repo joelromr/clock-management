@@ -213,7 +213,8 @@ main { padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 22px
 
 /* ---------- Riel de estaciones ---------- */
 .path { overflow-x: auto; padding: 18px 0 4px; }
-.track { display: flex; align-items: flex-start; padding: 0 44px 58px; min-width: 520px; }
+/* Riel del proyecto: 50 px extra de margen a cada lado; si no cabe, se desplaza horizontalmente. */
+.track { display: flex; align-items: flex-start; padding: 0 94px 58px; min-width: 620px; }
 .station { position: relative; flex: none; width: 42px; height: 42px; }
 .box {
   width: 42px; height: 42px; display: grid; place-items: center;
@@ -338,11 +339,34 @@ table.log { width: 100%; border-collapse: collapse; font-size: 14px; }
 .live-row td { color: var(--stop); }
 
 /* ---------- Vacío ---------- */
-.empty { display: grid; gap: 18px; padding-top: 24px; max-width: 640px; }
+.empty { display: grid; gap: 18px; padding-top: 24px; }
 .empty h2 { font: 700 64px/.95 var(--f-display); text-transform: uppercase; }
 .empty p { margin: 0; color: var(--ink-2); max-width: 46ch; }
+
+/* Serpiente (pantalla de inicio): filas que alternan dirección, unidas por curvas.
+   Estación 42 px + tramo 90 px: deben coincidir con SNAKE en app.js. */
+.path.snake { overflow: visible; padding: 26px 0 0; }
+.snake-track { display: grid; row-gap: 46px; padding: 6px 48px 0; }
+.snake-row {
+  position: relative; display: flex; align-items: flex-start; padding-bottom: 40px;
+  width: calc(var(--per-row) * 42px + (var(--per-row) - 1) * 90px);
+}
+.snake-row.rev { flex-direction: row-reverse; }
+.snake .station, .snake .box { width: 42px; height: 42px; }
+.snake .station.start .box { width: 18px; height: 18px; margin: 12px; }
+.snake .seg { flex: none; width: 90px; min-width: 0; height: 42px; margin: 0; }
+.snake .seg::before { top: 20px; }
+.snake .tick { height: 14px; }
+.snake .label { top: 50px; width: 108px; font-size: 12px; }
+.snake .label .lname { display: inline; }
+/* Curva que baja a la fila siguiente, por fuera de las etiquetas */
+.snake-turn {
+  position: absolute; top: 20px; width: 34px; height: calc(100% + 46px);
+  border: 2px solid var(--rule); pointer-events: none;
+}
+.snake-turn.right { right: -34px; border-left: 0; border-radius: 0 30px 30px 0; }
+.snake-turn.left { left: -34px; border-right: 0; border-radius: 30px 0 0 30px; }
 .empty .btn { justify-self: start; width: auto; }
-.empty .path { padding-top: 26px; }
 
 /* ---------- Efectos ---------- */
 #fx { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 50; }
