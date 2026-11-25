@@ -72,7 +72,7 @@ function freshState() {
   return {
     version: 2, projects: [], selectedId: null, lastSeen: null, away: null,
     settings: {
-      sound: true, theme: 'system', friction: true,
+      sound: true, theme: 'system', friction: true, levelImages: false,
       templates: [{ id: DEFAULT_TPL_ID, name: 'Evaluación A / B / combinada', rounds: clone(DEFAULT_ROUNDS) }],
       defaultTemplateId: DEFAULT_TPL_ID,
     },
@@ -86,6 +86,7 @@ function normalize(s) {
     sound: old.sound ?? true,
     theme: old.theme ?? 'system',
     friction: old.friction ?? true,
+    levelImages: old.levelImages ?? false,
     templates: old.templates,
     defaultTemplateId: old.defaultTemplateId,
   };
@@ -428,8 +429,142 @@ function checkLevel(prev) {
       const pt = s ? centerOf(s) : { x: innerWidth / 2, y: 60 };
       burst(pt.x, pt.y, 60, 1.2);
       sfx('level');
+      if (state.settings.levelImages) setTimeout(() => showLevelImage(l), 700);
     }, 500);
   }
+}
+
+/* --- imágenes de nivel: carpeta local, solo lectura ---
+   Lo único que se guarda (en IndexedDB) es la *referencia* a la carpeta para no pedirla cada vez.
+   Las imágenes se leen del disco al momento y se muestran desde memoria; nunca se copian ni se suben. */
+const IMG_EXT = /\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i;
+const gallery = { handle: null, name: '', sources: [], status: 'none' }; // none | needs-permission | ready | session | empty | missing
+const idb = {
+  open() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('clock-management', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  },
+  async run(mode, fn) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const req = fn(db.transaction('kv', mode).objectStore('kv'));
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => rej(req.error);
+    });
+  },
+  get(k) { return this.run('readonly', (s) => s.get(k)); },
+  set(k, v) { return this.run('readwrite', (s) => s.put(v, k)); },
+  del(k) { return this.run('readwrite', (s) => s.delete(k)); },
+};
+async function scanDir(dir, depth = 0, out = []) {
+  for await (const entry of dir.values()) {
+    if (entry.kind === 'file' && IMG_EXT.test(entry.name)) out.push({ name: entry.name, getFile: () => entry.getFile() });
+    else if (entry.kind === 'directory' && depth < 2) await scanDir(entry, depth + 1, out);
+  }
+  return out;
+}
+async function loadGallery(interactive = false) {
+  if (!gallery.handle) return;
+  try {
+    let perm = await gallery.handle.queryPermission({ mode: 'read' });
+    if (perm !== 'granted' && interactive) perm = await gallery.handle.requestPermission({ mode: 'read' });
+    if (perm !== 'granted') { gallery.status = 'needs-permission'; renderMenu(); return; }
+    gallery.sources = await scanDir(gallery.handle);
+    gallery.status = gallery.sources.length ? 'ready' : 'empty';
+  } catch {
+    gallery.sources = [];
+    gallery.status = 'missing';
+  }
+  renderMenu();
+}
+async function pickFolder() {
+  if (!window.showDirectoryPicker) { $('#dirFallback').click(); return; } // Firefox/Safari: solo por esta sesión
+  try {
+    const h = await window.showDirectoryPicker({ id: 'cm-level-images', mode: 'read' });
+    gallery.handle = h;
+    gallery.name = h.name;
+    try { await idb.set('imgDir', h); } catch { /* sin IndexedDB: funciona solo esta sesión */ }
+    await loadGallery(true);
+    if (gallery.status === 'ready') toast(`Carpeta "${h.name}": ${gallery.sources.length} imágenes. Solo se leen en tu equipo.`);
+    else if (gallery.status === 'empty') toast(`La carpeta "${h.name}" no tiene imágenes.`);
+  } catch (e) {
+    if (e.name !== 'AbortError') toast('No se pudo abrir la carpeta.');
+  }
+}
+async function forgetFolder() {
+  try { await idb.del('imgDir'); } catch { /* nada que borrar */ }
+  Object.assign(gallery, { handle: null, name: '', sources: [], status: 'none' });
+  renderMenu();
+  toast('Carpeta olvidada. No queda ninguna referencia guardada.');
+}
+async function initGallery() {
+  if (!state.settings.levelImages || gallery.handle || !window.indexedDB) return;
+  try {
+    const h = await idb.get('imgDir');
+    if (h) { gallery.handle = h; gallery.name = h.name; await loadGallery(false); }
+  } catch { /* sin IndexedDB */ }
+}
+function folderLabel() {
+  const n = gallery.sources.length;
+  switch (gallery.status) {
+    case 'ready': return `${gallery.name} · ${n}`;
+    case 'session': return `${n} · solo esta sesión`;
+    case 'needs-permission': return `${gallery.name} · dar permiso`;
+    case 'empty': return `${gallery.name} · sin imágenes`;
+    case 'missing': return 'No encontrada · elegir';
+    default: return 'Elegir';
+  }
+}
+
+async function showLevelImage(lvl, manual = false) {
+  if (!state.settings.levelImages || $('.photo-overlay')) return;
+  if (gallery.status === 'needs-permission') await loadGallery(true);
+  if (!gallery.sources.length) {
+    if (manual) toast('Elige una carpeta con imágenes en Menú → Carpeta.');
+    return;
+  }
+  const src = gallery.sources[Math.floor(Math.random() * gallery.sources.length)];
+  let url;
+  try { url = URL.createObjectURL(await src.getFile()); }
+  catch { gallery.status = 'missing'; gallery.sources = []; renderMenu(); toast('No encontré la carpeta de imágenes.'); return; }
+  const stamp = new Date(now());
+  const o = document.createElement('div');
+  o.className = 'overlay photo-overlay';
+  o.innerHTML = `
+    <figure class="photo-finish" role="dialog" aria-label="Imagen de nivel ${lvl}">
+      <div class="pf-head"><span>Foto de llegada</span><span>${fmtTime(stamp)} · ${pad(stamp.getSeconds())}s</span></div>
+      <div class="pf-frame">
+        <img alt="" src="${url}">
+        <div class="pf-shutter"><i></i><i></i></div>
+        <div class="pf-flash"></div>
+        <span class="pf-corner tl"></span><span class="pf-corner tr"></span><span class="pf-corner bl"></span><span class="pf-corner br"></span>
+      </div>
+      <figcaption>
+        <span class="pf-level">Nivel ${lvl}</span>
+        <span class="pf-meta">${fmtDate(stamp)}</span>
+      </figcaption>
+      <button class="btn btn-solid pf-close">Seguir</button>
+    </figure>`;
+  const close = () => {
+    o.remove();
+    URL.revokeObjectURL(url);
+    document.removeEventListener('keydown', onKey, true);
+  };
+  const onKey = (e) => { if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(); } };
+  o.addEventListener('click', (e) => { if (e.target === o || e.target.closest('.pf-close')) close(); });
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(o);
+  const img = o.querySelector('img');
+  try { await img.decode(); } catch { /* se muestra igual */ }
+  requestAnimationFrame(() => {
+    o.classList.add('open');
+    sfx('shutter');
+    setTimeout(() => { const pt = centerOf(o.querySelector('.pf-frame')); burst(pt.x, pt.y, 50, 1.3); }, 450);
+  });
 }
 
 /* --- tiempo que corrió con la página cerrada --- */
@@ -481,6 +616,11 @@ function renderDebug() {
       <b class="debug-val">+${fmtShort(timeOffset)}</b>
       ${[1, 10, 30, 60].map((m) => `<button class="btn btn-small" data-debug="warp" data-min="${m}" ${dis}>+${m < 60 ? `${m} min` : '1 h'}</button>`).join('')}
       <button class="btn btn-small" data-debug="away" ${dis}>Simular navegador cerrado 15 min</button>
+    </div>
+    <div class="debug-row">
+      <span class="debug-label">Imágenes de nivel</span>
+      <button class="btn btn-small" data-debug="photo" ${state.settings.levelImages ? '' : 'disabled'}>Probar imagen</button>
+      <span class="debug-note">${state.settings.levelImages ? `Carpeta: ${esc(folderLabel())}` : 'Actívalas en Menú → Imágenes de nivel.'}</span>
     </div>
     <div class="debug-row">
       <span class="debug-label">Ritmo</span>
@@ -540,6 +680,7 @@ document.addEventListener('click', (e) => {
     case 'away': simulateAway(15); break;
     case 'reset': resetDebug(true); break;
     case 'blank': resetDebug(false); break;
+    case 'photo': showLevelImage(level(), true); break;
   }
 });
 
@@ -549,7 +690,7 @@ function renderStats() {
     <div class="stat"><span class="stat-label">Hoy</span><span class="stat-val" data-today></span></div>
     <div class="stat"><span class="stat-label">Logros hoy</span><span class="stat-val">${todayAchievements()}</span></div>
     <div class="stat"><span class="stat-label">Racha</span><span class="stat-val">${st} <small>${st === 1 ? 'día' : 'días'}</small></span></div>
-    <div class="stat level"><span class="stat-label">Nivel ${lvl} · ${into}/${XP_PER_LEVEL} XP</span>
+    <div class="stat level ${state.settings.levelImages ? 'clickable' : ''}" ${state.settings.levelImages ? 'role="button" tabindex="0" title="Ver una imagen de nivel"' : ''}><span class="stat-label">Nivel ${lvl} · ${into}/${XP_PER_LEVEL} XP</span>
       <div class="xpbar"><i style="width:${(into / XP_PER_LEVEL) * 100}%"></i></div></div>`;
 }
 
@@ -558,6 +699,11 @@ function renderMenu() {
   $('#mSound b').textContent = state.settings.sound ? 'Sí' : 'No';
   $('#mTheme b').textContent = THEME_LABEL[state.settings.theme] || THEME_LABEL.system;
   $('#mFriction b').textContent = state.settings.friction ? 'Sí' : 'No';
+  const imgs = state.settings.levelImages;
+  $('#mImages b').textContent = imgs ? 'Sí' : 'No';
+  $('#mFolder').hidden = !imgs;
+  $('#mFolder b').textContent = folderLabel();
+  $('#mForget').hidden = !imgs || !gallery.handle;
 }
 
 function renderList() {
@@ -886,6 +1032,7 @@ const SFX = {
   project: [[523, 659, 784, 1047, 784, 1047, 1319], 0.24, 0.11],
   level: [[659, 880, 1175, 1568], 0.16, 0.08],
   break: [[392, 330, 262, 196], 0.24, 0.11, 'sawtooth', 0.06],
+  shutter: [[1800, 2400, 600], 0.03, 0.045, 'square', 0.05],
 };
 function sfx(name) {
   if (!state.settings.sound || !SFX[name]) return;
@@ -1081,6 +1228,33 @@ $('#mFriction').addEventListener('click', () => {
   commit();
   toast(state.settings.friction ? 'Con ritmo activo, pausar pide mantener presionado.' : 'Pausa sin fricción: un clic y listo.');
 });
+$('#mImages').addEventListener('click', async () => {
+  state.settings.levelImages = !state.settings.levelImages;
+  commit();
+  if (!state.settings.levelImages) { toast('Imágenes de nivel apagadas.'); return; }
+  await initGallery();
+  if (!gallery.handle && !gallery.sources.length) pickFolder(); // primera vez: elegir carpeta de una vez
+  else toast('Imágenes de nivel activas.');
+});
+$('#mFolder').addEventListener('click', () => {
+  if (gallery.status === 'needs-permission') loadGallery(true);
+  else pickFolder();
+});
+$('#mForget').addEventListener('click', forgetFolder);
+$('#dirFallback').addEventListener('change', (e) => {
+  const files = [...e.target.files].filter((f) => IMG_EXT.test(f.name));
+  e.target.value = '';
+  gallery.sources = files.map((f) => ({ name: f.name, getFile: async () => f }));
+  gallery.name = files[0]?.webkitRelativePath?.split('/')[0] || '';
+  gallery.status = files.length ? 'session' : 'empty';
+  renderMenu();
+  toast(files.length ? `${files.length} imágenes listas (solo esta sesión).` : 'Esa carpeta no tiene imágenes.');
+});
+// Clic (o Enter) en el nivel: muestra una imagen al azar.
+document.addEventListener('click', (e) => { if (e.target.closest('.stat.level.clickable')) showLevelImage(level(), true); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.closest?.('.stat.level.clickable')) showLevelImage(level(), true);
+});
 $('#mExport').addEventListener('click', () => {
   closeMenu();
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
@@ -1211,6 +1385,7 @@ $('#tplSave').addEventListener('click', () => {
 
 /* ---------- arranque ---------- */
 applyTheme();
+initGallery();
 away = state.away || null;
 detectAway();
 if (!selected() && state.projects.length) state.selectedId = state.projects[0].id;

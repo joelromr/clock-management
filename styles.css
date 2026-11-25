@@ -502,6 +502,56 @@ dialog::backdrop { background: color-mix(in srgb, var(--paper) 70%, transparent)
 .chk { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; cursor: pointer; }
 .chk input { accent-color: var(--ink); width: 16px; height: 16px; }
 
+/* Imágenes de nivel: "foto de llegada" */
+.menu-item.sub { padding-left: 22px; font-size: 13px; }
+.menu-item.sub b { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat.level.clickable { cursor: pointer; }
+.stat.level.clickable:hover { background: var(--rule-soft); }
+.photo-overlay { background: rgba(6, 8, 11, .72); backdrop-filter: blur(4px); }
+.photo-finish {
+  margin: 0; display: grid; gap: 12px; padding: 14px 14px 16px;
+  background: var(--sheet); border: 1.5px solid var(--ink); border-radius: var(--r);
+  max-width: min(94vw, 840px); box-shadow: 8px 8px 0 color-mix(in srgb, var(--ink) 35%, transparent);
+  opacity: 0; transform: translateY(14px) scale(.97);
+  transition: opacity .3s ease, transform .45s cubic-bezier(.2, 1.2, .4, 1);
+}
+.photo-overlay.open .photo-finish { opacity: 1; transform: none; }
+.pf-head {
+  display: flex; justify-content: space-between; gap: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--rule);
+  font: 600 11px var(--f-mono); text-transform: uppercase; letter-spacing: .12em; color: var(--ink-2);
+}
+.pf-frame {
+  position: relative; justify-self: center; overflow: hidden; line-height: 0;
+  background: var(--ink); border: 6px solid var(--ink); outline: 1px solid var(--rule); outline-offset: 3px;
+}
+.pf-frame img {
+  display: block; width: auto; height: auto; max-width: min(86vw, 790px); max-height: 62vh;
+  transform: scale(1.12); filter: grayscale(1) contrast(1.25);
+  transition: transform 1.6s cubic-bezier(.2, .8, .2, 1) .35s, filter 1.2s ease .55s;
+}
+.photo-overlay.open .pf-frame img { transform: none; filter: none; }
+.pf-shutter i {
+  position: absolute; left: 0; right: 0; height: 50.5%; z-index: 1;
+  background: repeating-linear-gradient(90deg, var(--ink) 0 18px, color-mix(in srgb, var(--ink) 82%, var(--sheet)) 18px 20px);
+  transition: transform .55s cubic-bezier(.7, 0, .3, 1) .12s;
+}
+.pf-shutter i:first-child { top: 0; border-bottom: 2px solid var(--signal); }
+.pf-shutter i:last-child { bottom: 0; border-top: 2px solid var(--signal); }
+.photo-overlay.open .pf-shutter i:first-child { transform: translateY(-102%); }
+.photo-overlay.open .pf-shutter i:last-child { transform: translateY(102%); }
+.pf-flash { position: absolute; inset: 0; z-index: 2; background: #fff; opacity: 0; pointer-events: none; }
+.photo-overlay.open .pf-flash { animation: pfflash .7s ease-out .32s; }
+@keyframes pfflash { 0% { opacity: 0; } 15% { opacity: .85; } 100% { opacity: 0; } }
+.pf-corner { position: absolute; z-index: 3; width: 18px; height: 18px; border: 0 solid var(--signal); }
+.pf-corner.tl { top: 8px; left: 8px; border-top-width: 3px; border-left-width: 3px; }
+.pf-corner.tr { top: 8px; right: 8px; border-top-width: 3px; border-right-width: 3px; }
+.pf-corner.bl { bottom: 8px; left: 8px; border-bottom-width: 3px; border-left-width: 3px; }
+.pf-corner.br { bottom: 8px; right: 8px; border-bottom-width: 3px; border-right-width: 3px; }
+.photo-finish figcaption { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.pf-level { font: 700 36px/1 var(--f-display); text-transform: uppercase; letter-spacing: .02em; }
+.pf-meta { font: 400 12px var(--f-mono); color: var(--ink-2); }
+.pf-close { justify-self: end; }
+
 /* Footer de debug y banda de modo prueba */
 .debug { border-top: 1.5px solid var(--ink); background: var(--sheet); padding: 0 20px; }
 .debug summary {
