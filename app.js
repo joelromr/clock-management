@@ -208,9 +208,11 @@ function xpTotal() {
     }
     if (p.completedAt) xp += XP.project;
   }
+  if (debugMode) xp += state.debugXp || 0; // XP simulado, solo existe en modo prueba
   return xp;
 }
-const level = () => Math.floor(xpTotal() / XP_PER_LEVEL) + 1;
+// Empiezas en nivel 0; cada nivel desde el 1 se gana (y desbloquea su imagen).
+const level = () => Math.floor(xpTotal() / XP_PER_LEVEL);
 function todayMs() {
   const s0 = startOfToday(), n = now();
   let t = 0;
@@ -521,9 +523,8 @@ function folderLabel() {
   }
 }
 
-// Cada nivel desbloquea una imagen al azar y queda fija para ese nivel (state.levelImage).
+// Cada nivel (desde el 1) desbloquea una imagen al azar y queda fija para ese nivel (state.levelImage).
 // mode: 'new' = acabas de subir (elige otra y la fija) · 'current' = volver a ver la del nivel actual
-//       'random' = prueba de debug (no fija nada)
 function pickSource(mode, lvl) {
   const cur = state.levelImage;
   if (mode === 'current' && cur && cur.level === lvl) {
@@ -533,12 +534,17 @@ function pickSource(mode, lvl) {
   let pool = gallery.sources;
   if (cur && pool.length > 1) pool = pool.filter((s) => s.key !== cur.key); // que no repita la anterior
   const src = pool[Math.floor(Math.random() * pool.length)];
-  if (mode !== 'random') { state.levelImage = { level: lvl, key: src.key }; save(); }
+  state.levelImage = { level: lvl, key: src.key };
+  save();
   return src;
 }
 
 async function showLevelImage(lvl, { manual = false, mode = 'new' } = {}) {
   if (!state.settings.levelImages || $('.photo-overlay')) return;
+  if (lvl < 1) {
+    if (manual) toast(`Tu primera imagen se desbloquea al llegar a nivel 1. Te faltan ${XP_PER_LEVEL - xpTotal()} XP.`);
+    return;
+  }
   if (gallery.status === 'needs-permission') await loadGallery(true);
   if (!gallery.sources.length) {
     if (manual) toast('Elige una carpeta con imágenes en Menú → Carpeta.');
@@ -635,9 +641,11 @@ function renderDebug() {
       <button class="btn btn-small" data-debug="away" ${dis}>Simular navegador cerrado 15 min</button>
     </div>
     <div class="debug-row">
-      <span class="debug-label">Imágenes de nivel</span>
-      <button class="btn btn-small" data-debug="photo" ${state.settings.levelImages ? '' : 'disabled'}>Probar imagen</button>
-      <span class="debug-note">${state.settings.levelImages ? `Carpeta: ${esc(folderLabel())}` : 'Actívalas en Menú → Imágenes de nivel.'}</span>
+      <span class="debug-label">Nivel</span>
+      <b class="debug-val">${level()} · ${xpTotal() % XP_PER_LEVEL}/${XP_PER_LEVEL}</b>
+      <button class="btn btn-small" data-debug="xp" data-xp="50" ${dis}>+50 XP</button>
+      <button class="btn btn-small" data-debug="levelup" ${dis}>Subir de nivel</button>
+      <span class="debug-note">Imágenes: ${state.settings.levelImages ? esc(folderLabel()) : 'apagadas (Menú → Imágenes de nivel)'}</span>
     </div>
     <div class="debug-row">
       <span class="debug-label">Ritmo</span>
@@ -676,6 +684,14 @@ function warp(min) {
   save();
   renderAll();
 }
+// Suma XP simulado y corre el mismo flujo que al ganarlo de verdad (toast, confeti, imagen).
+function addDebugXp(amount) {
+  if (!debugMode || !amount) return;
+  const prev = level();
+  state.debugXp = (state.debugXp || 0) + amount;
+  commit();
+  checkLevel(prev);
+}
 function simulateAway(min) {
   if (!debugMode) return;
   if (!activeSession()) { toast('Primero inicia un cronómetro.'); return; }
@@ -697,7 +713,8 @@ document.addEventListener('click', (e) => {
     case 'away': simulateAway(15); break;
     case 'reset': resetDebug(true); break;
     case 'blank': resetDebug(false); break;
-    case 'photo': showLevelImage(level(), { manual: true, mode: 'random' }); break;
+    case 'xp': addDebugXp(+b.dataset.xp); break;
+    case 'levelup': addDebugXp(XP_PER_LEVEL - (xpTotal() % XP_PER_LEVEL)); break;
   }
 });
 
@@ -707,7 +724,7 @@ function renderStats() {
     <div class="stat"><span class="stat-label">Hoy</span><span class="stat-val" data-today></span></div>
     <div class="stat"><span class="stat-label">Logros hoy</span><span class="stat-val">${todayAchievements()}</span></div>
     <div class="stat"><span class="stat-label">Racha</span><span class="stat-val">${st} <small>${st === 1 ? 'día' : 'días'}</small></span></div>
-    <div class="stat level ${state.settings.levelImages ? 'clickable' : ''}" ${state.settings.levelImages ? 'role="button" tabindex="0" title="Ver una imagen de nivel"' : ''}><span class="stat-label">Nivel ${lvl} · ${into}/${XP_PER_LEVEL} XP</span>
+    <div class="stat level ${state.settings.levelImages ? 'clickable' : ''}" ${state.settings.levelImages ? `role="button" tabindex="0" title="${lvl >= 1 ? `Ver la imagen del nivel ${lvl}` : 'La primera imagen se desbloquea en nivel 1'}"` : ''}><span class="stat-label">Nivel ${lvl} · ${into}/${XP_PER_LEVEL} XP</span>
       <div class="xpbar"><i style="width:${(into / XP_PER_LEVEL) * 100}%"></i></div></div>`;
 }
 
