@@ -25,8 +25,9 @@
   --r: 3px;
   color-scheme: light;
 }
+/* Tema oscuro: sigue al sistema salvo que elijas "Claro"; "Oscuro" lo fuerza. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --paper: #121518;
     --sheet: #1a1e22;
     --ink: #e8ebe5;
@@ -35,7 +36,7 @@
     --rule-soft: #262b30;
     --signal: #f5c400;
     --on-signal: #15181d;
-    --mark: color-mix(in srgb, var(--signal) 0%, transparent);
+    --mark: transparent;
     --sel-bg: #262b31;
     --sel-fg: var(--signal);
     --next-fg: var(--signal);
@@ -43,6 +44,23 @@
     --stop: #f0604f;
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --paper: #121518;
+  --sheet: #1a1e22;
+  --ink: #e8ebe5;
+  --ink-2: #979ea2;
+  --rule: #363c42;
+  --rule-soft: #262b30;
+  --signal: #f5c400;
+  --on-signal: #15181d;
+  --mark: transparent;
+  --sel-bg: #262b31;
+  --sel-fg: var(--signal);
+  --next-fg: var(--signal);
+  --go: #45b880;
+  --stop: #f0604f;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -76,6 +94,8 @@ kbd {
 .btn-big { width: 100%; padding: 14px 16px; font-size: 18px; }
 .btn-danger { border-color: var(--stop); color: var(--stop); }
 .btn-danger:hover { background: var(--stop); color: var(--sheet); }
+.btn-danger-solid { background: var(--stop); border-color: var(--stop); color: var(--sheet); }
+.btn-danger-solid:hover { background: var(--stop); filter: brightness(1.08); }
 .btn-small { padding: 6px 10px; font-size: 13px; }
 .tri {
   width: 0; height: 0; border-left: 10px solid currentColor;
@@ -368,6 +388,8 @@ dialog::backdrop { background: color-mix(in srgb, var(--paper) 70%, transparent)
 .tpl-round input, .tpl-round textarea { padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--r); background: var(--paper); }
 .tpl-round input:focus, .tpl-round textarea:focus { outline: none; border-color: var(--ink); }
 .tpl-round textarea { width: 100%; resize: vertical; }
+.dlg-confirm { width: min(420px, calc(100vw - 32px)); }
+.dlg-confirm p { margin: 8px 0 18px; }
 .dlg-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; padding-top: 14px; border-top: 1.5px solid var(--ink); }
 .spacer { flex: 1; }
 

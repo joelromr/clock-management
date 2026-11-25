@@ -46,7 +46,7 @@ const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyV
 /* ---------- almacenamiento ---------- */
 let storageWarned = false;
 function freshState() {
-  return { version: 1, projects: [], selectedId: null, lastSeen: null, settings: { sound: true, template: clone(DEFAULT_TEMPLATE) } };
+  return { version: 1, projects: [], selectedId: null, lastSeen: null, settings: { sound: true, theme: 'system', template: clone(DEFAULT_TEMPLATE) } };
 }
 function normalize(s) {
   const base = freshState();
@@ -211,11 +211,11 @@ function toggleStep(p, sid, el) {
   checkLevel(lvl);
 }
 
-function completeRound(p, el) {
+async function completeRound(p, el) {
   if (isDone(p)) return;
   const ri = p.currentRound, r = p.rounds[ri];
   const pending = r.steps.filter((s) => !s.doneAt).length;
-  if (pending && !confirm(`Faltan ${pending} paso(s) en "${r.name}". ¿Cerrar la ronda de todos modos?`)) return;
+  if (pending && !(await ask('Faltan pasos', `Quedan ${pending} paso(s) sin marcar en "${r.name}". ¿Cerrar la ronda de todos modos?`, 'Cerrar ronda'))) return;
   const lvl = level();
   const pt = el ? centerOf(el) : screenCenter();
   r.completedAt = now();
@@ -239,10 +239,10 @@ function completeRound(p, el) {
   checkLevel(lvl);
 }
 
-function reopenRound(p, ri) {
+async function reopenRound(p, ri) {
   const r = p.rounds[ri];
   if (!r) return;
-  if (!confirm(`¿Reabrir "${r.name}"? Las rondas posteriores también se reabren.`)) return;
+  if (!(await ask('Reabrir ronda', `¿Reabrir "${r.name}"? Las rondas posteriores también se reabren.`, 'Reabrir'))) return;
   for (let i = ri; i < p.rounds.length; i++) p.rounds[i].completedAt = null;
   p.currentRound = ri;
   p.completedAt = null;
@@ -261,15 +261,15 @@ function removeStep(p, sid) {
   r.steps = r.steps.filter((s) => s.id !== sid);
   commit();
 }
-function deleteProject(p) {
-  if (!confirm(`¿Eliminar "${p.name}" y todo su tiempo registrado? No se puede deshacer.`)) return;
+async function deleteProject(p) {
+  if (!(await ask('Eliminar proyecto', `Se borra "${p.name}" con todo su tiempo registrado. No se puede deshacer.`, 'Eliminar', true))) return;
   state.projects = state.projects.filter((x) => x !== p);
   const next = state.projects.find((x) => !isDone(x)) || state.projects[0];
   state.selectedId = next ? next.id : null;
   commit();
 }
-function deleteSession(p, sid) {
-  if (!confirm('¿Borrar esta sesión de tiempo?')) return;
+async function deleteSession(p, sid) {
+  if (!(await ask('Borrar sesión', 'Se quita esta sesión y su tiempo del proyecto.', 'Borrar', true))) return;
   p.sessions = p.sessions.filter((s) => s.id !== sid);
   commit();
 }
@@ -713,6 +713,44 @@ $('#btnSound').addEventListener('click', () => {
   sfx('step');
 });
 
+/* ---------- tema: sistema → claro → oscuro ---------- */
+const THEME_LABEL = { system: 'Tema: sistema', light: 'Tema: claro', dark: 'Tema: oscuro' };
+function applyTheme() {
+  const t = state.settings.theme;
+  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  $('#btnTheme').textContent = THEME_LABEL[t] || THEME_LABEL.system;
+}
+$('#btnTheme').addEventListener('click', () => {
+  const order = ['system', 'light', 'dark'];
+  state.settings.theme = order[(order.indexOf(state.settings.theme) + 1) % order.length];
+  applyTheme();
+  save();
+});
+
+/* ---------- confirmación dentro de la página (en lugar de confirm()) ---------- */
+function ask(title, text, okLabel = 'Aceptar', danger = false) {
+  return new Promise((resolve) => {
+    const d = $('#dlgConfirm');
+    const ok = $('#confirmOk');
+    $('#confirmTitle').textContent = title;
+    $('#confirmText').textContent = text;
+    ok.textContent = okLabel;
+    ok.className = danger ? 'btn btn-danger-solid' : 'btn btn-solid';
+    const done = (value) => (e) => {
+      e?.preventDefault();
+      ok.onclick = $('#confirmCancel').onclick = d.oncancel = null;
+      d.close();
+      resolve(value);
+    };
+    ok.onclick = done(true);
+    $('#confirmCancel').onclick = done(false);
+    d.oncancel = done(false); // tecla Esc
+    d.showModal();
+    (danger ? $('#confirmCancel') : ok).focus();
+  });
+}
+
 $('#btnExport').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -729,8 +767,9 @@ $('#fileImport').addEventListener('change', async (e) => {
   try {
     const data = JSON.parse(await f.text());
     if (!Array.isArray(data.projects)) throw new Error('formato');
-    if (!confirm(`¿Importar ${data.projects.length} proyecto(s)? Esto reemplaza los datos actuales.`)) return;
+    if (!(await ask('Importar respaldo', `Se cargan ${data.projects.length} proyecto(s) y se reemplazan los datos actuales.`, 'Importar', true))) return;
     state = normalize(data);
+    applyTheme();
     setAway(null);
     commit();
     toast('Datos importados.');
@@ -784,6 +823,7 @@ $('#tplForm').addEventListener('submit', (e) => {
 });
 
 /* ---------- arranque ---------- */
+applyTheme();
 away = state.away || null;
 detectAway();
 if (!selected() && state.projects.length) state.selectedId = state.projects[0].id;

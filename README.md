@@ -14,7 +14,7 @@ Luego entra a <http://localhost:5173>.
 
 > Los datos viven en el navegador y en ese origen (`localhost:5173`). Si borras los datos del sitio, se pierden: usa **Exportar** de vez en cuando para respaldar en JSON, e **Importar** para restaurar.
 
-## Qué hace (v0.2)
+## Qué hace (v0.3)
 
 - **▶ Nuevo y arrancar**: crea "Proyecto N" con fecha/hora de inicio y arranca el cronómetro. El nombre se edita ahí mismo.
 - **Un solo cronómetro activo**: si arrancas otro proyecto, el anterior se pausa solo.
@@ -26,6 +26,8 @@ Luego entra a <http://localhost:5173>.
   - Clic en un nodo completado para reabrir esa ronda.
 - **Barra superior**: tiempo de hoy, logros de hoy, racha de días y nivel (500 XP por nivel).
 - **Plantilla**: define rondas y pasos por defecto para proyectos nuevos.
+- **Tema**: el botón de arriba alterna entre *sistema*, *claro* y *oscuro*; se recuerda.
+- **Confirmaciones**: eliminar, reabrir o importar piden confirmación en un diálogo propio de la página (Esc cancela).
 - **Sesiones**: historial de cada arranque/pausa con su ronda.
 
 ### Atajos

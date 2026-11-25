@@ -8,6 +8,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
   <link rel="stylesheet" href="styles.css">
+  <script>
+    // Aplica el tema guardado antes de pintar, para que no parpadee.
+    try {
+      const t = JSON.parse(localStorage.getItem('clock-management:v1'))?.settings?.theme;
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch {}
+  </script>
 </head>
 <body>
   <header class="topbar">
@@ -15,6 +22,7 @@
     <div class="stats" id="stats"></div>
     <div class="actions">
       <button id="btnTemplate" class="btn" title="Rondas y pasos para proyectos nuevos">Plantilla</button>
+      <button id="btnTheme" class="btn" title="Cambiar tema: sistema, claro u oscuro"></button>
       <button id="btnSound" class="btn" title="Activar o silenciar sonido"></button>
       <button id="btnExport" class="btn" title="Descargar respaldo JSON">Exportar</button>
       <label class="btn" title="Cargar respaldo JSON">Importar<input type="file" id="fileImport" accept="application/json" hidden></label>
@@ -41,6 +49,18 @@
         <span class="spacer"></span>
         <button value="cancel" class="btn" formnovalidate>Cancelar</button>
         <button value="save" class="btn btn-solid">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgConfirm" class="dlg dlg-confirm">
+    <form method="dialog">
+      <h2 id="confirmTitle"></h2>
+      <p id="confirmText"></p>
+      <div class="dlg-actions">
+        <span class="spacer"></span>
+        <button value="cancel" class="btn" id="confirmCancel">Cancelar</button>
+        <button value="ok" class="btn btn-solid" id="confirmOk">Aceptar</button>
       </div>
     </form>
   </dialog>
