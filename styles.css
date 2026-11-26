@@ -240,6 +240,15 @@ main { padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 22px
 }
 .station:hover .rm-round, .station:focus-within .rm-round { opacity: 1; }
 .station .rm-round:hover { border-color: var(--stop); }
+/* Agregar ronda: un "+" sobre el último tramo, antes de la meta. */
+.add-round {
+  position: absolute; left: 50%; top: 21px; transform: translate(-50%, -50%); z-index: 1;
+  width: 22px; height: 22px; padding: 0; border-radius: 50%; display: grid; place-items: center;
+  font: 600 16px/1 var(--f-mono); color: var(--ink-2); background: var(--paper);
+  border: 1.5px dashed var(--rule); cursor: pointer; transition: color .15s, border-color .15s, transform .15s;
+}
+.add-round:hover, .add-round:focus-visible { color: var(--ink); border: 1.5px solid var(--ink); background: var(--signal); transform: translate(-50%, -50%) scale(1.12); }
+@media (max-width: 760px) { .add-round { top: 17px; } }
 .station.leaving, .seg.leaving { opacity: 0; transform: scale(.6); transition: opacity .2s ease, transform .2s ease; }
 .station.goal .box {
   border: 2px solid var(--rule);

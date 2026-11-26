@@ -301,6 +301,41 @@ test('Quitar rondas: cancelar no cambia nada y las cerradas no se quitan', async
   eq(X.roundTime(p, 0) + X.roundTime(p, 1), X.projectTime(p), 'La suma por rondas es el total');
 });
 
+test('Agregar rondas: al final, antes de la meta, sin tocar el tiempo', async ({ open }) => {
+  const app = await open();
+  const { X } = app;
+  const c = fakeClock(app, T0);
+  X.createProject();
+  const p = X.selected();
+  X.toggleTimer(p);
+  c.advance(5 * MIN);
+  app.$('.add-round').click();
+  eq(p.rounds.length, 4, 'Ahora son cuatro rondas');
+  eq(p.rounds[3].short, '04', 'Abreviatura numerada');
+  eq(p.rounds[3].name, 'Ronda 04', 'Nombre numerado');
+  eq(p.rounds[3].steps.length, 0, 'Empieza sin pasos');
+  eq(p.currentRound, 0, 'La ronda actual no cambia');
+  check(X.isRunning(p), 'El reloj sigue corriendo');
+  eq(p.sessions.length, 1, 'Sin cortes de sesión');
+  eq(app.$$('.track .station[data-ri]').length, 4, 'El riel muestra la nueva ronda');
+  const saved = JSON.parse(localStorage.getItem(`${NS}:v1`));
+  eq(saved.projects[0].rounds.length, 4, 'Se guardó');
+  // La numeración no repite una abreviatura que ya existe.
+  p.rounds[3].short = '05';
+  X.addRound(p);
+  eq(p.rounds[4].short, '06', 'Salta abreviaturas ocupadas');
+  // Recorrerla: una ronda sin pasos se cierra directo.
+  for (let r = 0; r < 4; r++) { markAll(app, p); await X.completeRound(p); }
+  eq(p.currentRound, 4, 'Llegó a la ronda agregada');
+  X.addStep(p, 'Paso nuevo');
+  markAll(app, p);
+  await X.completeRound(p);
+  closeOverlays(app);
+  check(X.isDone(p), 'Proyecto completado');
+  check(!app.$('.add-round'), 'Un proyecto completado no ofrece agregar rondas');
+  eq(X.projectTime(p), 5 * MIN, 'El tiempo es exacto');
+});
+
 test('Descontar: exacto, con tope y deshacer; también resta del ritmo', async ({ open }) => {
   const app = await open();
   const { X } = app;

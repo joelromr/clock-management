@@ -636,6 +636,22 @@ function removeStep(p, sid) {
     commit();
   });
 }
+// Agrega una ronda vacía al final (antes de la meta); sus pasos se agregan cuando llegues a ella.
+function addRound(p) {
+  if (!p || isDone(p)) return;
+  const used = new Set(p.rounds.map((r) => r.short));
+  let n = p.rounds.length + 1;
+  while (used.has(String(n).padStart(2, '0'))) n++;
+  const short = String(n).padStart(2, '0');
+  const ri = p.rounds.push({ short, name: `Ronda ${short}`, completedAt: null, steps: [] }) - 1;
+  flash = { pid: p.id, ri };
+  commit();
+  flash = null;
+  sfx('create');
+  const track = $('.path');
+  if (track) track.scrollLeft = track.scrollWidth;
+  toast(`Ronda ${short} agregada. Sus pasos los pones cuando llegues a ella.`);
+}
 // Se puede quitar una ronda que no esté cerrada, mientras quede otra pendiente:
 // la meta siempre se alcanza cerrando una ronda (con su celebración y su XP).
 function canRemoveRound(p, ri) {
@@ -1246,7 +1262,7 @@ function renderPath(p) {
   });
   const popGoal = flash && flash.pid === p.id && done ? 'pop' : '';
   html += `
-    <div class="seg ${done ? 'done' : 'locked'}"><div class="seg-fill" style="width:${done ? 100 : 0}%"></div></div>
+    <div class="seg ${done ? 'done' : 'locked'}"><div class="seg-fill" style="width:${done ? 100 : 0}%"></div>${done ? '' : '<button class="add-round" data-action="addround" title="Agregar una ronda antes de la meta" aria-label="Agregar ronda">+</button>'}</div>
     <div class="station goal ${done ? 'done' : 'locked'} ${popGoal}" title="Meta"><div class="box"></div><div class="label">Meta</div></div>`;
   return `<section class="path" aria-label="Avance por rondas"><div class="track">${html}</div></section>`;
 }
@@ -1592,6 +1608,7 @@ document.addEventListener('click', (e) => {
     case 'node': if (p && p.rounds[+t.dataset.ri]?.completedAt) reopenRound(p, +t.dataset.ri); break;
     case 'reopen': if (p) reopenRound(p, +t.dataset.ri); break;
     case 'rmround': if (p) removeRound(p, +t.dataset.ri); break;
+    case 'addround': if (p) addRound(p); break;
     case 'delete': if (p) deleteProject(p); break;
     case 'rmsession': if (p) deleteSession(p, t.dataset.sid); break;
     case 'away-keep': resolveAway('keep'); break;
