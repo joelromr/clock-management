@@ -235,6 +235,72 @@ test('Reabrir una ronda con el reloj corriendo', async ({ open }) => {
   eq(X.roundTime(p, 0), 7 * MIN, 'Tiempo de la ronda A (6 + 1)');
 });
 
+test('Quitar rondas: la tarea salió corta y aun así se llega a la meta', async ({ open }) => {
+  const app = await open();
+  const { X } = app;
+  const c = fakeClock(app, T0);
+  X.createProject();
+  const p = X.selected();
+  X.toggleTimer(p);
+  c.advance(5 * MIN);
+  // Una ronda que viene, sin avance: se quita al instante, sin preguntar.
+  check(app.$('.station[data-ri="2"] .rm-round'), 'La ronda pendiente tiene botón para quitarla');
+  await X.removeRound(p, 2);
+  eq(p.rounds.length, 2, 'Quedan dos rondas');
+  eq(app.$$('.track .station[data-ri]').length, 2, 'El riel muestra dos rondas');
+  // La ronda actual, con el reloj corriendo: pregunta y corta el tiempo exacto.
+  c.advance(MIN);
+  const pr = X.removeRound(p, 0);
+  await answer(app, true);
+  await pr;
+  eq(p.rounds.length, 1, 'Queda una ronda');
+  eq(p.rounds[0].name, 'Evaluación B', 'La siguiente ocupa su lugar');
+  eq(p.currentRound, 0, 'Y es la actual');
+  check(X.isRunning(p), 'El reloj sigue corriendo');
+  eq(p.sessions[0].round, null, 'Lo ya medido se queda sin ronda');
+  eq(p.sessions[0].end, p.sessions[1].start, 'Corte sin hueco ni traslape');
+  eq(p.sessions[1].round, 0, 'Lo nuevo cuenta en la ronda actual');
+  c.advance(2 * MIN);
+  eq(X.projectTime(p), 8 * MIN, 'El total no pierde nada');
+  eq(X.roundTime(p, 0), 2 * MIN, 'La ronda actual cuenta desde el corte');
+  // La última pendiente no se puede quitar: la meta se alcanza cerrándola.
+  check(!X.canRemoveRound(p, 0), 'La última ronda pendiente no se puede quitar');
+  check(!app.$('.rm-round'), 'Ya no hay botón para quitar');
+  await X.removeRound(p, 0);
+  eq(p.rounds.length, 1, 'Sigue la ronda');
+  markAll(app, p);
+  await X.completeRound(p);
+  closeOverlays(app);
+  check(X.isDone(p), 'Proyecto completado con una sola ronda');
+  check(!X.isRunning(p), 'El reloj se detuvo');
+});
+
+test('Quitar rondas: cancelar no cambia nada y las cerradas no se quitan', async ({ open }) => {
+  const app = await open();
+  const { X } = app;
+  const c = fakeClock(app, T0);
+  X.createProject();
+  const p = X.selected();
+  X.toggleTimer(p);
+  c.advance(4 * MIN);
+  markAll(app, p);
+  await X.completeRound(p);
+  c.advance(3 * MIN);
+  X.toggleStep(p, p.rounds[1].steps[0].id);
+  const before = JSON.stringify(p);
+  const pr = X.removeRound(p, 1);
+  await answer(app, false);
+  await pr;
+  eq(JSON.stringify(p), before, 'Cancelar deja todo igual');
+  check(!X.canRemoveRound(p, 0), 'Una ronda cerrada no se quita');
+  check(!app.$('.station[data-ri="0"] .rm-round'), 'Ni tiene botón');
+  // Quitar una ronda futura que tenía tiempo de antes (por reabrir) recorre los índices.
+  await X.removeRound(p, 2);
+  eq(p.rounds.length, 2, 'Quedan dos rondas');
+  eq(p.currentRound, 1, 'La actual no cambia');
+  eq(X.roundTime(p, 0) + X.roundTime(p, 1), X.projectTime(p), 'La suma por rondas es el total');
+});
+
 test('Descontar: exacto, con tope y deshacer; también resta del ritmo', async ({ open }) => {
   const app = await open();
   const { X } = app;

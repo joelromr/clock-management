@@ -636,6 +636,56 @@ function removeStep(p, sid) {
     commit();
   });
 }
+// Se puede quitar una ronda que no esté cerrada, mientras quede otra pendiente:
+// la meta siempre se alcanza cerrando una ronda (con su celebración y su XP).
+function canRemoveRound(p, ri) {
+  const r = p.rounds[ri];
+  if (!r || r.completedAt || isDone(p)) return false;
+  return p.rounds.some((x, i) => i !== ri && !x.completedAt);
+}
+async function removeRound(p, ri) {
+  if (!canRemoveRound(p, ri)) {
+    if (p.rounds[ri] && !p.rounds[ri].completedAt) toast('Es la última ronda pendiente: ciérrala para llegar a la meta.');
+    return;
+  }
+  const r = p.rounds[ri];
+  const marked = r.steps.filter((s) => s.doneAt).length;
+  const timed = p.sessions.some((s) => s.round === ri);
+  if (marked || timed) {
+    const what = [marked ? `${marked} paso(s) marcado(s)` : '', timed ? 'tiempo registrado' : ''].filter(Boolean).join(' y ');
+    const detail = [marked ? 'Los pasos marcados se van con ella, junto con su XP.' : '', timed ? 'El tiempo se queda en el proyecto, ya sin ronda asignada.' : ''].filter(Boolean).join(' ');
+    if (!(await ask('Quitar ronda', `"${r.name}" tiene ${what}. ${detail}`, 'Quitar ronda', true))) return;
+  }
+  sfx('remove');
+  const st = $(`.station[data-ri="${ri}"]`);
+  await new Promise((done) => leave([st, st?.previousElementSibling], () => { dropRound(p, ri); done(); }));
+  const left = p.rounds.length - p.currentRound;
+  toast(left === 1
+    ? `${r.name} quitada. ${p.rounds[p.currentRound].name} es la última: ciérrala y llegas a la meta.`
+    : `${r.name} quitada.`);
+}
+function dropRound(p, ri) {
+  const t = now();
+  const live = p.sessions.find((s) => s.end == null);
+  // Si corría en la ronda que se va: lo ya medido se queda sin ronda y, desde este
+  // milisegundo, sigue en la nueva ronda actual (corte exacto, igual que al cambiar de ronda).
+  if (live && live.round === ri && live.start < t) {
+    live.end = t;
+    live.round = null;
+    p.sessions.push({ id: uid(), start: t, end: null, round: ri });
+  }
+  for (const s of p.sessions) {
+    if (s.end != null && s.round === ri) s.round = null;
+    else if (s.round > ri) s.round--;
+  }
+  const wasCurrent = ri === p.currentRound;
+  p.rounds.splice(ri, 1);
+  if (ri < p.currentRound) p.currentRound--;
+  if (wasCurrent) p.currentRound = p.rounds.findIndex((x) => !x.completedAt);
+  const running = p.sessions.find((s) => s.end == null);
+  if (running && running.round != null) running.round = p.currentRound;
+  commit();
+}
 async function deleteProject(p) {
   if (!(await ask('Eliminar proyecto', `Se borra "${p.name}" con todo su tiempo registrado. No se puede deshacer.`, 'Eliminar', true))) return;
   sfx('remove');
@@ -1190,6 +1240,7 @@ function renderPath(p) {
       <div class="seg ${st}"><div class="seg-fill" style="width:${fill}%"></div><div class="ticks">${ticks}</div></div>
       <div class="station ${st} ${pop}" data-action="node" data-ri="${i}" title="${esc(r.name)}${r.completedAt ? ' · clic para reabrir' : ''}">
         <div class="box">${r.completedAt ? '✓' : esc(r.short)}</div>
+        ${canRemoveRound(p, i) ? `<button class="x rm-round" data-action="rmround" data-ri="${i}" title="Quitar ronda" aria-label="Quitar ${esc(r.name)}">×</button>` : ''}
         <div class="label"><span class="lname">${esc(r.name)}</span><small data-round-timer="${p.id}:${i}" data-fmt="short"></small></div>
       </div>`;
   });
@@ -1540,6 +1591,7 @@ document.addEventListener('click', (e) => {
     case 'complete': if (p) completeRound(p, t); break;
     case 'node': if (p && p.rounds[+t.dataset.ri]?.completedAt) reopenRound(p, +t.dataset.ri); break;
     case 'reopen': if (p) reopenRound(p, +t.dataset.ri); break;
+    case 'rmround': if (p) removeRound(p, +t.dataset.ri); break;
     case 'delete': if (p) deleteProject(p); break;
     case 'rmsession': if (p) deleteSession(p, t.dataset.sid); break;
     case 'away-keep': resolveAway('keep'); break;
