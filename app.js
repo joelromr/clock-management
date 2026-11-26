@@ -636,6 +636,72 @@ function removeStep(p, sid) {
     commit();
   });
 }
+/* --- editar nombres sobre la marcha --- */
+const PENCIL = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M11 2.5l2.5 2.5L6 12.5l-3.2.7.7-3.2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+// Cambia el texto de `el` por un campo. Lo escrito se guarda al vuelo (si algo redibuja la
+// pantalla a media edición, no se pierde); Enter o salir del campo confirma, Escape deshace.
+function inlineEdit(el, get, set) {
+  if (!el || el.querySelector('.inline-edit')) return;
+  const orig = get();
+  const inp = document.createElement('input');
+  inp.className = 'inline-edit';
+  inp.value = orig;
+  inp.maxLength = 120;
+  inp.spellcheck = false;
+  el.replaceChildren(inp);
+  inp.focus();
+  inp.select();
+  let closed = false;
+  const finish = (keep) => {
+    if (closed) return;
+    closed = true;
+    const v = inp.value.trim();
+    set(keep && v ? v : orig);
+    save();
+    if (keep && v && v !== orig) sfx('tick');
+    queueMicrotask(commit); // fuera de cualquier redibujo en curso
+  };
+  inp.addEventListener('input', () => { const v = inp.value.trim(); if (v) { set(v); save(); } });
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+  });
+  inp.addEventListener('blur', () => finish(true));
+  inp.addEventListener('click', (e) => e.stopPropagation()); // que el clic no marque el paso ni la estación
+  inp.addEventListener('dblclick', (e) => e.stopPropagation());
+}
+function renameRound(p, ri, el) {
+  const r = p && p.rounds[ri];
+  if (!r) return;
+  inlineEdit(el || $(`[data-rename-round="${ri}"]`), () => r.name, (v) => { r.name = v; });
+}
+function renameStep(p, sid) {
+  const st = p && p.rounds[p.currentRound]?.steps.find((s) => s.id === sid);
+  if (!st) return;
+  inlineEdit($(`.step[data-sid="${sid}"] .step-text`), () => st.text, (v) => { st.text = v; });
+}
+
+/* --- guardar el proyecto como plantilla --- */
+const roundsShape = (rounds) => JSON.stringify(rounds.map((r) => [r.short, r.name, r.steps.map((s) => (typeof s === 'string' ? s : s.text))]));
+function differsFromTemplate(p) {
+  const t = getTemplate(p.templateId);
+  return !t || roundsShape(t.rounds) !== roundsShape(p.rounds);
+}
+function saveAsTemplate(p) {
+  if (!p) return;
+  const names = new Set(state.settings.templates.map((t) => t.name));
+  let name = p.name, n = 2;
+  while (names.has(name)) name = `${p.name} (${n++})`;
+  const tpl = { id: uid(), name, rounds: p.rounds.map((r) => ({ short: r.short, name: r.name, steps: r.steps.map((s) => s.text) })) };
+  state.settings.templates.push(tpl);
+  p.templateId = tpl.id;
+  commit();
+  sfx('create');
+  const sel = $('#projTpl');
+  if (sel) { const pt = centerOf(sel); burst(pt.x, pt.y, 24, 0.8); }
+  toast(`Plantilla "${name}" guardada. Ya la puedes elegir en proyectos nuevos.`);
+}
+
 // Agrega una ronda vacía al final (antes de la meta); sus pasos se agregan cuando llegues a ella.
 function addRound(p) {
   if (!p || isDone(p)) return;
@@ -650,7 +716,8 @@ function addRound(p) {
   sfx('create');
   const track = $('.path');
   if (track) track.scrollLeft = track.scrollWidth;
-  toast(`Ronda ${short} agregada. Sus pasos los pones cuando llegues a ella.`);
+  toast(`Ronda ${short} agregada: ponle nombre. Sus pasos los agregas cuando llegues a ella.`);
+  renameRound(p, ri, $(`.station[data-ri="${ri}"] .lname`));
 }
 // Se puede quitar una ronda que no esté cerrada, mientras quede otra pendiente:
 // la meta siempre se alcanza cerrando una ronda (con su celebración y su XP).
@@ -1135,6 +1202,9 @@ function tplSelectHTML(p) {
   const opts = state.settings.templates.map((t) => `<option value="${t.id}" ${t.id === p.templateId ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
   return `<select id="projTpl" aria-label="Plantilla del proyecto">${known ? '' : '<option value="" selected disabled>Sin plantilla</option>'}${opts}</select>`;
 }
+// Si el proyecto ya no coincide con su plantilla (rondas o pasos cambiados), ofrece guardarlo como una nueva.
+const saveTplHTML = (p) => (differsFromTemplate(p)
+  ? '<button class="link-btn" data-action="savetpl" title="Crea una plantilla nueva con las rondas y pasos de este proyecto">Guardar como plantilla</button>' : '');
 
 function renderMain() {
   const m = $('#main');
@@ -1154,7 +1224,7 @@ function renderMain() {
         <span>Creado <b>${fmtDate(p.createdAt)}, ${fmtTime(p.createdAt)}</b></span>
         <span>Total <b data-timer="${p.id}" data-fmt="short"></b></span>
         <span><b>${p.sessions.length}</b> ${p.sessions.length === 1 ? 'sesión' : 'sesiones'}</span>
-        <label class="tpl-pick">Plantilla ${tplSelectHTML(p)}</label>
+        <span class="tpl-pick"><label class="tpl-pick">Plantilla ${tplSelectHTML(p)}</label>${saveTplHTML(p)}</span>
       </div>
       <button class="btn btn-danger btn-small" data-action="delete">Eliminar</button>
     </section>
@@ -1257,7 +1327,7 @@ function renderPath(p) {
       <div class="station ${st} ${pop}" data-action="node" data-ri="${i}" title="${esc(r.name)}${r.completedAt ? ' · clic para reabrir' : ''}">
         <div class="box">${r.completedAt ? '✓' : esc(r.short)}</div>
         ${canRemoveRound(p, i) ? `<button class="x rm-round" data-action="rmround" data-ri="${i}" title="Quitar ronda" aria-label="Quitar ${esc(r.name)}">×</button>` : ''}
-        <div class="label"><span class="lname">${esc(r.name)}</span><small data-round-timer="${p.id}:${i}" data-fmt="short"></small></div>
+        <div class="label"><span class="lname" ${r.completedAt ? '' : `data-rename-round="${i}" title="Doble clic para renombrar"`}>${esc(r.name)}</span><small data-round-timer="${p.id}:${i}" data-fmt="short"></small></div>
       </div>`;
   });
   const popGoal = flash && flash.pid === p.id && done ? 'pop' : '';
@@ -1277,13 +1347,15 @@ function renderRoundCard(p) {
       <span class="check">${s.doneAt ? '✓' : ''}</span>
       <span class="step-text">${esc(s.text)}</span>
       ${s.doneAt ? `<span class="step-time">${s.xp && s.xp !== XP.step ? `+${s.xp} · ` : ''}${fmtTime(s.doneAt)}</span>` : ''}
+      <button class="x ed" data-action="editstep" data-sid="${s.id}" title="Renombrar paso" aria-label="Renombrar paso">${PENCIL}</button>
       <button class="x" data-action="rmstep" data-sid="${s.id}" title="Quitar paso" aria-label="Quitar paso">×</button>
     </li>`).join('');
   const last = ri === p.rounds.length - 1;
   return `
     <section class="round">
       <div class="round-head">
-        <div><div class="eyebrow">Ronda ${ri + 1} de ${p.rounds.length} · ${esc(r.short)}</div><h2>${esc(r.name)}</h2></div>
+        <div><div class="eyebrow">Ronda ${ri + 1} de ${p.rounds.length} · ${esc(r.short)}</div>
+          <h2><span class="rname" data-rename-round="${ri}" title="Doble clic para renombrar">${esc(r.name)}</span><button class="x ed" data-action="editround" data-ri="${ri}" title="Renombrar ronda" aria-label="Renombrar ronda">${PENCIL}</button></h2></div>
         <div class="round-count"><b>${n}</b>/${total}</div>
       </div>
       <ul class="steps">${steps}</ul>
@@ -1609,6 +1681,9 @@ document.addEventListener('click', (e) => {
     case 'reopen': if (p) reopenRound(p, +t.dataset.ri); break;
     case 'rmround': if (p) removeRound(p, +t.dataset.ri); break;
     case 'addround': if (p) addRound(p); break;
+    case 'editround': if (p) renameRound(p, +t.dataset.ri, $('.round-head .rname')); break;
+    case 'editstep': if (p) renameStep(p, t.dataset.sid); break;
+    case 'savetpl': if (p) saveAsTemplate(p); break;
     case 'delete': if (p) deleteProject(p); break;
     case 'rmsession': if (p) deleteSession(p, t.dataset.sid); break;
     case 'away-keep': resolveAway('keep'); break;
@@ -1617,6 +1692,13 @@ document.addEventListener('click', (e) => {
     case 'deduct': if (p) deductTime(p, +t.dataset.min, t); break;
     case 'undo-deduct': undoDeduct(); break;
   }
+});
+
+// Doble clic al nombre de una ronda (en el riel o en la tarjeta) para renombrarla.
+document.addEventListener('dblclick', (e) => {
+  const el = e.target.closest('[data-rename-round]');
+  const p = selected();
+  if (el && p) renameRound(p, +el.dataset.renameRound, el);
 });
 
 // Pausa sostenida con mouse o dedo.

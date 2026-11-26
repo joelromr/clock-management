@@ -303,7 +303,27 @@ main { padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 22px
 .step.just .check { animation: stamp .45s cubic-bezier(.2, 1.4, .4, 1); }
 .step-text { flex: 0 1 auto; min-width: 0; }
 .step-time, .step .x { margin-left: auto; }
-.step-time + .x { margin-left: 0; }
+.step-time + .x, .step .ed + .x { margin-left: 0; }
+.x.ed { display: inline-grid; place-items: center; vertical-align: middle; }
+.x.ed:hover { color: var(--ink); background: var(--rule-soft); }
+.round-head h2 .ed { margin-left: 6px; width: 28px; height: 28px; }
+.round-head:hover .ed, .round-head .ed:focus-visible { opacity: 1; }
+[data-rename-round] { cursor: text; }
+/* Campo para renombrar en el lugar: mismo tipo de letra que el texto que reemplaza. */
+.inline-edit {
+  font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--ink);
+  background: var(--sheet); border: 1.5px solid var(--ink); border-radius: var(--r);
+  padding: 1px 6px; margin: -3px 0; width: 100%; min-width: 8ch; box-sizing: border-box; outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 45%, transparent);
+}
+.step-text:has(.inline-edit) { flex: 1; }
+.round-head h2 .rname:has(.inline-edit) { display: inline-block; width: min(100%, 420px); }
+.label .inline-edit { text-align: center; padding: 2px 4px; }
+.link-btn {
+  font: 600 12px var(--f-mono); color: var(--ink); background: none; border: 0; padding: 2px 0; cursor: pointer;
+  text-decoration: underline; text-decoration-color: var(--signal); text-decoration-thickness: 2px; text-underline-offset: 3px;
+}
+.link-btn:hover { text-decoration-color: var(--ink); }
 .step.next .step-text { background: linear-gradient(transparent 52%, var(--mark) 52%); color: var(--next-fg); }
 .step.done .step-text { color: var(--ink-2); text-decoration: line-through; text-decoration-thickness: 1.5px; }
 .step-time { font: 400 12px var(--f-mono); color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }

@@ -336,6 +336,99 @@ test('Agregar rondas: al final, antes de la meta, sin tocar el tiempo', async ({
   eq(X.projectTime(p), 5 * MIN, 'El tiempo es exacto');
 });
 
+test('Renombrar rondas y pasos en el lugar: Enter guarda, Escape deshace', async ({ open }) => {
+  const app = await open();
+  const { X } = app;
+  fakeClock(app, T0);
+  X.createProject();
+  const p = X.selected();
+  const press = (el, k) => el.dispatchEvent(new app.w.KeyboardEvent('keydown', { key: k, bubbles: true }));
+  const type = (el, v) => { el.value = v; el.dispatchEvent(new app.w.Event('input', { bubbles: true })); };
+  const settle = () => sleep(0);
+  // Ronda actual, desde el lápiz de la tarjeta.
+  app.$('.round-head .ed').click();
+  let inp = app.$('.round-head .inline-edit');
+  check(inp, 'Aparece el campo en la tarjeta de la ronda');
+  type(inp, 'Diseño');
+  eq(p.rounds[0].name, 'Diseño', 'Lo escrito se guarda al vuelo');
+  press(inp, 'Enter');
+  await settle();
+  eq(app.$('.round-head .rname').textContent, 'Diseño', 'La tarjeta muestra el nombre nuevo');
+  eq(app.$('.station[data-ri="0"] .lname').textContent, 'Diseño', 'El riel también');
+  eq(JSON.parse(localStorage.getItem(`${NS}:v1`)).projects[0].rounds[0].name, 'Diseño', 'Se guardó');
+  // Ronda futura, con doble clic en el riel; Escape deshace.
+  app.$('.station[data-ri="1"] .lname').dispatchEvent(new app.w.MouseEvent('dblclick', { bubbles: true }));
+  inp = app.$('.station[data-ri="1"] .inline-edit');
+  check(inp, 'Doble clic en el riel abre el campo');
+  type(inp, 'Otra cosa');
+  press(inp, 'Escape');
+  await settle();
+  eq(p.rounds[1].name, 'Evaluación B', 'Escape regresa el nombre original');
+  // Paso: el lápiz lo edita sin marcarlo; un nombre vacío no se acepta.
+  const sid = p.rounds[0].steps[0].id;
+  app.$(`.step[data-sid="${sid}"] .ed`).click();
+  inp = app.$(`.step[data-sid="${sid}"] .inline-edit`);
+  check(inp, 'Aparece el campo en el paso');
+  inp.click();
+  type(inp, '   ');
+  press(inp, 'Enter');
+  await settle();
+  eq(p.rounds[0].steps[0].text, 'Paso A1', 'Vacío conserva el nombre anterior');
+  app.$(`.step[data-sid="${sid}"] .ed`).click();
+  inp = app.$(`.step[data-sid="${sid}"] .inline-edit`);
+  type(inp, 'Revisar <b>todo</b>');
+  press(inp, 'Enter');
+  await settle();
+  eq(p.rounds[0].steps[0].text, 'Revisar <b>todo</b>', 'Paso renombrado');
+  eq(app.$(`.step[data-sid="${sid}"] .step-text`).textContent, 'Revisar <b>todo</b>', 'Se muestra como texto');
+  eq(p.rounds[0].steps[0].doneAt, null, 'Editar no marca el paso');
+  // Una ronda cerrada ya no se renombra desde el riel; una agregada pide nombre al instante.
+  markAll(app, p);
+  await X.completeRound(p);
+  check(!app.$('.station[data-ri="0"] .lname[data-rename-round]'), 'La ronda cerrada no se renombra');
+  app.$('.add-round').click();
+  inp = app.$('.station[data-ri="3"] .inline-edit');
+  check(inp, 'La ronda nueva abre su campo de nombre');
+  type(inp, 'Extra');
+  press(inp, 'Enter');
+  await settle();
+  eq(p.rounds[3].name, 'Extra', 'La ronda nueva quedó con su nombre');
+});
+
+test('Guardar el proyecto como plantilla', async ({ open }) => {
+  const app = await open();
+  const { X } = app;
+  fakeClock(app, T0);
+  X.createProject();
+  const p = X.selected();
+  check(!app.$('[data-action="savetpl"]'), 'Si coincide con su plantilla, no se ofrece');
+  await X.removeRound(p, 2);
+  X.addStep(p, 'Paso extra');
+  X.toggleStep(p, p.rounds[0].steps[0].id);
+  check(app.$('[data-action="savetpl"]'), 'Con cambios, se ofrece guardarla');
+  app.$('[data-action="savetpl"]').click();
+  const tpls = X.state.settings.templates;
+  eq(tpls.length, 2, 'Hay una plantilla nueva');
+  const t = tpls[1];
+  eq(t.name, p.name, 'Se llama como el proyecto');
+  eq(p.templateId, t.id, 'El proyecto queda con la plantilla nueva');
+  eq(JSON.stringify(t.rounds), JSON.stringify([
+    { short: 'A', name: 'Evaluación A', steps: ['Paso A1', 'Paso A2', 'Paso A3', 'Paso extra'] },
+    { short: 'B', name: 'Evaluación B', steps: ['Paso B1', 'Paso B2', 'Paso B3'] },
+  ]), 'Copia rondas y pasos, sin avance ni tiempos');
+  check(!app.$('[data-action="savetpl"]'), 'Ya coincide: el botón se va');
+  eq(JSON.parse(localStorage.getItem(`${NS}:v1`)).settings.templates.length, 2, 'Se guardó');
+  X.addRound(p);
+  app.$('[data-action="savetpl"]').click();
+  eq(X.state.settings.templates[2].name, `${p.name} (2)`, 'No repite nombres');
+  // Un proyecto nuevo con esa plantilla arranca limpio.
+  X.state.settings.defaultTemplateId = X.state.settings.templates[2].id;
+  X.createProject();
+  const q = X.selected();
+  eq(q.rounds.length, 3, 'Tres rondas');
+  check(q.rounds.every((r) => !r.completedAt && r.steps.every((s) => !s.doneAt)), 'Sin avance heredado');
+});
+
 test('Descontar: exacto, con tope y deshacer; también resta del ritmo', async ({ open }) => {
   const app = await open();
   const { X } = app;
