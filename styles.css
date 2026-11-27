@@ -533,6 +533,8 @@ dialog::backdrop { background: color-mix(in srgb, var(--paper) 70%, transparent)
   position: absolute; bottom: calc(100% + 2px); left: 50%; transform: translateX(-50%);
   font: 600 11px var(--f-mono); font-style: normal; color: var(--ink-2); white-space: nowrap;
 }
+.pace-mark.start { left: 0; transform: none; }
+.pace-mark.start em { left: 0; transform: none; color: var(--ink); }
 .pace-text { font-size: 13px; color: var(--ink-2); }
 .pace-text b { color: var(--ink); font-family: var(--f-display); font-size: 15px; text-transform: uppercase; letter-spacing: .06em; }
 
@@ -586,7 +588,13 @@ dialog::backdrop { background: color-mix(in srgb, var(--paper) 70%, transparent)
 }
 .chip:hover { color: var(--ink); border-color: var(--ink); }
 .chip:active { transform: translateY(1px); }
-.chip-undo { border-style: dashed; }
+/* Deshacer: otro color y separado de los −N min, para no picarle por error. */
+.chip-undo {
+  margin-left: 10px; position: relative; border-color: transparent; border-radius: 999px; padding: 3px 10px;
+  color: var(--go); background: color-mix(in srgb, var(--go) 14%, transparent);
+}
+.chip-undo::before { content: ""; position: absolute; left: -9px; top: 3px; bottom: 3px; width: 1px; background: var(--rule); }
+.chip-undo:hover { color: var(--go); border-color: var(--go); background: color-mix(in srgb, var(--go) 22%, transparent); }
 .deduct-total { font: 400 12px var(--f-mono); color: var(--ink-2); }
 .clock.dip { animation: dip .5s cubic-bezier(.2, .8, .2, 1); }
 @keyframes dip { 30% { transform: translateY(4px); color: var(--go); } }

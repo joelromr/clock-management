@@ -33,6 +33,15 @@ const PACE = [
   { min: 120, mult: 3, label: 'Tramo completo', hold: 0 },
 ];
 const GOAL_MIN = PACE[PACE.length - 1].min;
+// Después de la meta el ritmo sigue: cada 30 min más sin pausa suma ×0.2 (3.2, 3.4, …), sin tope.
+// La pausa sigue libre; lo que se arriesga al pausar es el multiplicador acumulado.
+const EXTRA_MIN = 30, EXTRA_STEP = 0.2;
+const extraTier = (k) => ({
+  min: GOAL_MIN + k * EXTRA_MIN,
+  mult: Math.round((PACE[PACE.length - 1].mult + k * EXTRA_STEP) * 10) / 10,
+  label: k ? `Vuelta extra ${k}` : PACE[PACE.length - 1].label,
+  hold: 0,
+});
 
 // Modo prueba: datos en otra llave y reloj que se puede adelantar.
 const DEBUG_KEY = `${NS}:debug`;
@@ -289,9 +298,13 @@ function pace(p) {
   const run = p && runInfo(p);
   if (!run) return null;
   const minutes = Math.max(0, now() - run.start - run.deducted) / 60000;
+  if (minutes >= GOAL_MIN) {
+    const k = Math.floor((minutes - GOAL_MIN) / EXTRA_MIN);
+    return { ...extraTier(k), idx: PACE.length - 1 + k, extra: k, goal: true, minutes, next: extraTier(k + 1) };
+  }
   let idx = 0;
   PACE.forEach((t, i) => { if (minutes >= t.min) idx = i; });
-  return { ...PACE[idx], idx, minutes, next: PACE[idx + 1] || null };
+  return { ...PACE[idx], idx, minutes, goal: false, next: PACE[idx + 1] };
 }
 const currentMult = (p) => (isRunning(p) ? pace(p)?.mult ?? 1 : 1);
 function needsHold(p) {
@@ -401,9 +414,9 @@ function toggleTimer(p) {
   if (isRunning(p)) {
     const pc = pace(p);
     stopTimer();
-    if (pc && pc.minutes >= GOAL_MIN) {
+    if (pc && pc.goal) {
       sfx('round');
-      toast(`Pit stop merecido: ${fmtShort(pc.minutes * 60000)} seguidos. Descansa y vuelve por otro tramo.`);
+      toast(`Pit stop merecido: ${fmtShort(pc.minutes * 60000)} seguidos, llegaste a ×${pc.mult}. Descansa y vuelve por otro tramo.`);
     } else sfx('stop');
   } else { startTimer(p); sfx('start'); }
   commit();
@@ -1036,7 +1049,7 @@ function renderDebug() {
     </div>
     <div class="debug-row">
       <span class="debug-label">Tramos</span>
-      <span class="debug-note">${PACE.map((t) => `${t.min} min · ${t.label} ×${t.mult} · ${t.hold ? `pausa ${fmtSec(t.hold)}` : 'pausa libre'}`).join(' / ')}</span>
+      <span class="debug-note">${PACE.map((t) => `${t.min} min · ${t.label} ×${t.mult} · ${t.hold ? `pausa ${fmtSec(t.hold)}` : 'pausa libre'}`).join(' / ')} / luego +${EXTRA_STEP} cada ${EXTRA_MIN} min, pausa libre</span>
     </div>
     <div class="debug-row">
       <span class="debug-label">Versión</span>
@@ -1179,22 +1192,25 @@ function renderAway(p) {
     </div>`;
 }
 
+const minLabel = (m) => (m % 60 ? (m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`) : `${m / 60} h`);
 function paceHTML(p) {
-  const max = GOAL_MIN;
-  const minLabel = (m) => (m % 60 ? `${m} min` : `${m / 60} h`);
-  const marks = PACE.slice(1).map((t) => `<span class="pace-mark" style="left:${(t.min / max) * 100}%"><em>×${t.mult}</em></span>`).join('');
   const pc = pace(p);
+  // Después de la meta, la barra se reinicia en cada tramo de 30 min rumbo al siguiente ×0.2.
+  if (pc && pc.goal) {
+    const fill = Math.min((pc.minutes - pc.min) / EXTRA_MIN, 1) * 100;
+    const mark = `<span class="pace-mark" style="left:100%"><em>×${pc.next.mult}</em></span>`;
+    return `<div class="pace-bar goal" data-lap="${pc.extra}"><i style="width:${fill}%"></i><span class="pace-mark start"><em>×${pc.mult}</em></span>${mark}</div>
+      <div class="pace-text"><b>${pc.label} ×${pc.mult}</b> · ${fmtShort(pc.minutes * 60000)} sin pausa · ×${pc.next.mult} a las ${minLabel(pc.next.min)} · pausa libre</div>`;
+  }
+  const max = GOAL_MIN;
+  const marks = PACE.slice(1).map((t) => `<span class="pace-mark" style="left:${(t.min / max) * 100}%"><em>×${t.mult}</em></span>`).join('');
   if (!pc) {
     return `<div class="pace-bar"><i style="width:0%"></i>${marks}</div>
-      <div class="pace-text">Sin ritmo. Meta: ${minLabel(GOAL_MIN)} sin pausa (×${PACE[PACE.length - 1].mult}). El ×${PACE[1].mult} llega a los ${minLabel(PACE[1].min)}.</div>`;
+      <div class="pace-text">Sin ritmo. Meta: ${minLabel(GOAL_MIN)} sin pausa (×${PACE[PACE.length - 1].mult}), luego +${EXTRA_STEP} cada ${EXTRA_MIN} min. El ×${PACE[1].mult} llega a los ${minLabel(PACE[1].min)}.</div>`;
   }
   const fill = Math.min(pc.minutes / max, 1) * 100;
-  const run = fmtShort(pc.minutes * 60000);
-  const tail = pc.next
-    ? ` · ×${pc.next.mult} a los ${minLabel(pc.next.min)}`
-    : ' · meta cumplida, la pausa es libre';
-  return `<div class="pace-bar tier-${pc.idx} ${pc.next ? '' : 'goal'}"><i style="width:${fill}%"></i>${marks}</div>
-    <div class="pace-text"><b>${pc.label} ×${pc.mult}</b> · ${run} sin pausa${tail}</div>`;
+  return `<div class="pace-bar tier-${pc.idx}"><i style="width:${fill}%"></i>${marks}</div>
+    <div class="pace-text"><b>${pc.label} ×${pc.mult}</b> · ${fmtShort(pc.minutes * 60000)} sin pausa · ×${pc.next.mult} a ${pc.next.min < 60 ? 'los' : (pc.next.min < 120 ? 'la' : 'las')} ${minLabel(pc.next.min)}</div>`;
 }
 
 function tplSelectHTML(p) {
@@ -1254,7 +1270,7 @@ function renderDeduct(p) {
   const s = deductTarget(p);
   if (!s) return '';
   const undo = lastDeduct && lastDeduct.pid === p.id && lastDeduct.sid === s.id
-    ? `<button class="chip chip-undo" data-action="undo-deduct">Deshacer −${fmtAmount(lastDeduct.ms)}</button>` : '';
+    ? `<button class="chip chip-undo" data-action="undo-deduct">↶ Deshacer −${fmtAmount(lastDeduct.ms)}</button>` : '';
   const total = s.deducted ? `<span class="deduct-total">${fmtAmount(s.deducted)} descontados ${s.end == null ? 'en esta sesión' : 'de la última sesión'}</span>` : '';
   return `
     <div class="deduct" title="Quita minutos que no trabajaste (p. ej. ir al baño) sin pausar. Se restan del tiempo y también del ritmo.">
@@ -1477,11 +1493,13 @@ function checkPace(a) {
   const prev = paceSeen;
   paceSeen = { pid: a.p.id, idx: pc.idx };
   if (prev && prev.pid === a.p.id && pc.idx > prev.idx) {
-    const goal = !pc.next;
+    const goal = pc.goal && !pc.extra; // llegar a las 2 h: el festejo grande
     sfx(goal ? 'project' : 'level');
     toast(goal
-      ? `Tramo completo: ${fmtShort(pc.minutes * 60000)} sin pausa. Cada logro vale ×${pc.mult} y la pausa ya es libre.`
-      : `${pc.label}: desde ahora cada logro vale ×${pc.mult}.`);
+      ? `Tramo completo: ${fmtShort(pc.minutes * 60000)} sin pausa. Cada logro vale ×${pc.mult} y la pausa ya es libre. Si sigues, +${EXTRA_STEP} cada ${EXTRA_MIN} min.`
+      : pc.goal
+        ? `${pc.label}: ${fmtShort(pc.minutes * 60000)} sin pausa. Cada logro vale ×${pc.mult}; el ×${pc.next.mult} llega en ${EXTRA_MIN} min.`
+        : `${pc.label}: desde ahora cada logro vale ×${pc.mult}.`);
     if (state.selectedId === a.p.id && !holdTimer) {
       renderAll();
       const el = $('.pace-bar');

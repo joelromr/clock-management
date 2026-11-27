@@ -637,6 +637,46 @@ test('Ritmo: umbrales exactos y pausa sostenida por tramo', async ({ open }) => 
   check(!X.needsHold(p), 'Después de 2 h la pausa es libre');
 });
 
+test('Ritmo después de las 2 h: +0.2 cada 30 min, sin tope, y la barra se reinicia', async ({ open }) => {
+  const app = await open();
+  const { X } = app;
+  const c = fakeClock(app, T0);
+  X.createProject();
+  const p = X.selected();
+  X.toggleTimer(p);
+  c.advance(120 * MIN);
+  X.tick();
+  eq(X.pace(p).mult, 3, '2 h → ×3');
+  eq(X.pace(p).next.mult, 3.2, 'Lo que sigue es ×3.2');
+  eq(app.$('.pace-bar i').style.width, '0%', 'La barra arranca de nuevo');
+  c.advance(15 * MIN);
+  X.tick();
+  eq(app.$('.pace-bar i').style.width, '50%', 'A medio tramo, media barra');
+  c.advance(15 * MIN - 1);
+  eq(X.pace(p).mult, 3, '2:29:59.999 todavía ×3');
+  c.advance(1);
+  eq(X.pace(p).mult, 3.2, '2:30 → ×3.2');
+  eq(X.pace(p).label, 'Vuelta extra 1', 'Con su nombre');
+  X.tick();
+  eq(app.$('.pace-bar i').style.width, '0%', 'Y la barra se reinicia');
+  check(app.$('.pace-text').textContent.includes('×3.4 a las 3 h'), 'Dice cuándo llega el siguiente');
+  const before = app.$('#toast').textContent;
+  c.advance(30 * MIN);
+  X.tick();
+  eq(X.pace(p).mult, 3.4, '3 h → ×3.4');
+  check(app.$('#toast').textContent !== before && app.$('#toast').textContent.includes('×3.4'), 'Avisa cada 30 min');
+  c.advance(5 * 30 * MIN);
+  eq(X.pace(p).mult, 4.4, '5 h 30 → ×4.4 (sin errores de redondeo)');
+  check(!X.needsHold(p), 'La pausa sigue libre');
+  X.toggleStep(p, p.rounds[0].steps[0].id);
+  eq(p.rounds[0].steps[0].xp, 44, 'Un paso a ×4.4 vale 44');
+  X.toggleTimer(p);
+  check(!X.isRunning(p), 'Pausar funciona normal');
+  c.advance(MIN);
+  X.toggleTimer(p);
+  eq(X.pace(p).mult, 1, 'Y el ritmo vuelve a empezar');
+});
+
 test('Ritmo: una sesión de duración cero no congela la página', async ({ open }) => {
   const app = await open();
   const { X } = app;
