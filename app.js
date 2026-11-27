@@ -715,21 +715,26 @@ function saveAsTemplate(p) {
   toast(`Plantilla "${name}" guardada. Ya la puedes elegir en proyectos nuevos.`);
 }
 
-// Agrega una ronda vacía al final (antes de la meta); sus pasos se agregan cuando llegues a ella.
+// Agrega una ronda al final (antes de la meta) con los mismos pasos que la ronda inmediata anterior,
+// sin su avance: para repetir una vuelta sin reescribirla. Los pasos se pueden ajustar al llegar.
 function addRound(p) {
   if (!p || isDone(p)) return;
   const used = new Set(p.rounds.map((r) => r.short));
   let n = p.rounds.length + 1;
   while (used.has(String(n).padStart(2, '0'))) n++;
   const short = String(n).padStart(2, '0');
-  const ri = p.rounds.push({ short, name: `Ronda ${short}`, completedAt: null, steps: [] }) - 1;
+  const prev = p.rounds[p.rounds.length - 1];
+  const steps = (prev?.steps || []).map((s) => ({ id: uid(), text: s.text, doneAt: null }));
+  const ri = p.rounds.push({ short, name: `Ronda ${short}`, completedAt: null, steps }) - 1;
   flash = { pid: p.id, ri };
   commit();
   flash = null;
   sfx('create');
   const track = $('.path');
   if (track) track.scrollLeft = track.scrollWidth;
-  toast(`Ronda ${short} agregada: ponle nombre. Sus pasos los agregas cuando llegues a ella.`);
+  toast(steps.length
+    ? `Ronda ${short} agregada con los ${steps.length} pasos de ${prev.name}: ponle nombre.`
+    : `Ronda ${short} agregada: ponle nombre. Sus pasos los agregas cuando llegues a ella.`);
   renameRound(p, ri, $(`.station[data-ri="${ri}"] .lname`));
 }
 // Se puede quitar una ronda que no esté cerrada, mientras quede otra pendiente:

@@ -313,7 +313,9 @@ test('Agregar rondas: al final, antes de la meta, sin tocar el tiempo', async ({
   eq(p.rounds.length, 4, 'Ahora son cuatro rondas');
   eq(p.rounds[3].short, '04', 'Abreviatura numerada');
   eq(p.rounds[3].name, 'Ronda 04', 'Nombre numerado');
-  eq(p.rounds[3].steps.length, 0, 'Empieza sin pasos');
+  eq(JSON.stringify(p.rounds[3].steps.map((s) => s.text)), JSON.stringify(['Paso C1', 'Paso C2', 'Paso C3']), 'Trae los pasos de la ronda anterior');
+  check(p.rounds[3].steps.every((s) => !s.doneAt), 'Sin avance');
+  check(new Set(p.rounds.flatMap((r) => r.steps.map((s) => s.id))).size === p.rounds.reduce((n, r) => n + r.steps.length, 0), 'Con ids propios');
   eq(p.currentRound, 0, 'La ronda actual no cambia');
   check(X.isRunning(p), 'El reloj sigue corriendo');
   eq(p.sessions.length, 1, 'Sin cortes de sesión');
@@ -324,7 +326,17 @@ test('Agregar rondas: al final, antes de la meta, sin tocar el tiempo', async ({
   p.rounds[3].short = '05';
   X.addRound(p);
   eq(p.rounds[4].short, '06', 'Salta abreviaturas ocupadas');
-  // Recorrerla: una ronda sin pasos se cierra directo.
+  // Copia la ronda inmediata anterior tal como esté ahora: el texto, no lo marcado.
+  p.rounds[4].steps = [];
+  X.addRound(p);
+  eq(p.rounds[5].steps.length, 0, 'Si la anterior no tiene pasos, la nueva tampoco');
+  await X.removeRound(p, 5);
+  p.rounds[4].steps = [{ id: 'z1', text: 'Hecho', doneAt: Date.now() }];
+  X.addRound(p);
+  eq(p.rounds[5].steps[0].text, 'Hecho', 'Copia el texto');
+  eq(p.rounds[5].steps[0].doneAt, null, 'Pero no lo marcado');
+  check(p.rounds[5].steps[0].id !== 'z1', 'Con id nuevo');
+  await X.removeRound(p, 5);
   for (let r = 0; r < 4; r++) { markAll(app, p); await X.completeRound(p); }
   eq(p.currentRound, 4, 'Llegó a la ronda agregada');
   X.addStep(p, 'Paso nuevo');
