@@ -348,6 +348,35 @@ test('Agregar rondas: al final, antes de la meta, sin tocar el tiempo', async ({
   eq(X.projectTime(p), 5 * MIN, 'El tiempo es exacto');
 });
 
+test('Riel largo con scroll: marcar pasos o cambiar de ronda no lo regresa al inicio', async ({ open }) => {
+  const rounds = Array.from({ length: 14 }, (_, i) => ({
+    short: String(i + 1).padStart(2, '0'), name: `Ronda ${i + 1}`, completedAt: null,
+    steps: [1, 2].map((n) => ({ id: `r${i}s${n}`, text: `Paso ${n}`, doneAt: null })),
+  }));
+  const app = await open({ seed: makeState({ projects: [proj({ rounds })], selectedId: 'p1' }) });
+  const { X } = app;
+  fakeClock(app, T0);
+  const path = () => app.$('.path');
+  check(path().scrollWidth > path().clientWidth + 300, 'El riel tiene barra de desplazamiento');
+  path().scrollLeft = 400;
+  const p = X.selected();
+  X.toggleStep(p, 'r0s1');
+  eq(path().scrollLeft, 400, 'Marcar un paso no mueve el riel');
+  app.$('[data-action="deduct"]')?.click();
+  X.toggleTimer(p); X.toggleTimer(p);
+  eq(path().scrollLeft, 400, 'Iniciar o pausar tampoco');
+  // Avanzar hasta una ronda que queda fuera de la vista: el riel la busca.
+  path().scrollLeft = 0;
+  for (let r = 0; r < 9; r++) { markAll(app, p); await X.completeRound(p); closeOverlays(app); }
+  eq(p.currentRound, 9, 'Ya va en la ronda 10');
+  const t = path().getBoundingClientRect(), st = app.$('.path .station.current').getBoundingClientRect();
+  check(st.left >= t.left && st.right <= t.right, 'Al cambiar de ronda, la actual queda a la vista');
+  const there = path().scrollLeft;
+  check(there > 0, 'Para eso el riel se desplazó');
+  X.toggleStep(p, 'r9s1');
+  eq(path().scrollLeft, there, 'Y de ahí ya no se mueve al marcar');
+});
+
 test('Renombrar rondas y pasos en el lugar: Enter guarda, Escape deshace', async ({ open }) => {
   const app = await open();
   const { X } = app;

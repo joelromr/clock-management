@@ -1238,7 +1238,17 @@ function renderMain() {
   m.classList.remove('leaving');
   m.classList.toggle('enter', !!enter && enter.pid === state.selectedId);
   const p = selected();
-  if (!p) { m.innerHTML = renderEmpty(); return; }
+  // Redibujar no debe mover el riel ni la tabla: se recuerda dónde iba cada barra de desplazamiento.
+  const SCROLLERS = ['.path', '.table-wrap'];
+  const same = !!p && m.dataset.pid === p.id;
+  const kept = same ? SCROLLERS.map((s) => m.querySelector(s)?.scrollLeft || 0) : null;
+  const roundChanged = !same || m.dataset.round !== String(p.currentRound);
+  if (!p) { delete m.dataset.pid; m.innerHTML = renderEmpty(); return; }
+  m.dataset.pid = p.id; m.dataset.round = p.currentRound;
+  const restoreScroll = () => {
+    if (kept) SCROLLERS.forEach((s, i) => { const e = m.querySelector(s); if (e && kept[i]) e.scrollLeft = kept[i]; });
+    if (roundChanged) showCurrentStation(m); // otro proyecto o avanzó de ronda: que la ronda actual quede a la vista
+  };
   const running = isRunning(p), done = isDone(p), cur = p.rounds[p.currentRound];
   const hold = needsHold(p);
   const playLabel = running
@@ -1274,6 +1284,15 @@ function renderMain() {
     ${renderPath(p)}
     ${done ? renderDoneCard(p) : renderRoundCard(p)}
     ${renderSessions(p)}`;
+  restoreScroll();
+}
+// Si la ronda actual quedó fuera del riel visible, lo desplaza lo justo para que se vea.
+function showCurrentStation(m) {
+  const track = m.querySelector('.path'), st = track?.querySelector('.station.current');
+  if (!st || track.scrollWidth <= track.clientWidth) return;
+  const t = track.getBoundingClientRect(), r = st.getBoundingClientRect(), margin = 60;
+  if (r.left < t.left + margin) track.scrollLeft += r.left - t.left - margin;
+  else if (r.right > t.right - margin) track.scrollLeft += r.right - t.right + margin;
 }
 
 // Botones para quitar minutos que no trabajaste (sin pausar). Actúan sobre la sesión en curso, o la última.
