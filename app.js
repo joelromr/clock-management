@@ -187,7 +187,13 @@ function normalize(s) {
   }
   if (!s.projects.some((p) => p.id === s.selectedId)) s.selectedId = null;
   if (s.away && !(typeof s.away === 'object' && isNum(s.away.from) && typeof s.away.pid === 'string')) s.away = null;
-  if (s.levelImage && !(typeof s.levelImage === 'object' && typeof s.levelImage.key === 'string' && isNum(s.levelImage.level))) s.levelImage = null;
+  // Imagen de cada nivel: { nivel: ruta }. Antes solo se guardaba la del último nivel (levelImage).
+  const pics = {};
+  if (s.levelPics && typeof s.levelPics === 'object') for (const [k, v] of Object.entries(s.levelPics)) if (/^\d+$/.test(k) && typeof v === 'string') pics[k] = v;
+  const li = s.levelImage;
+  if (li && typeof li === 'object' && typeof li.key === 'string' && isNum(li.level) && !(li.level in pics)) pics[li.level] = li.key;
+  delete s.levelImage;
+  s.levelPics = pics;
   for (const k of ['debugOffset', 'debugXp']) if (s[k] != null && !isNum(s[k])) delete s[k];
   s.settings = st;
   s.version = 2;
@@ -910,23 +916,23 @@ function folderLabel() {
   }
 }
 
-// Cada nivel (desde el 1) desbloquea una imagen al azar y queda fija para ese nivel (state.levelImage).
-// mode: 'new' = acabas de subir (elige otra y la fija) · 'current' = volver a ver la del nivel actual
-function pickSource(mode, lvl) {
-  const cur = state.levelImage;
-  if (mode === 'current' && cur && cur.level === lvl) {
-    const same = gallery.sources.find((s) => s.key === cur.key);
-    if (same) return same;
-  }
-  let pool = gallery.sources;
-  if (cur && pool.length > 1) pool = pool.filter((s) => s.key !== cur.key); // que no repita la anterior
+// Cada nivel (desde el 1) desbloquea una imagen al azar y queda fija para ese nivel (state.levelPics):
+// si bajas de nivel y lo vuelves a alcanzar, o la vuelves a ver, es la misma imagen.
+// Las nuevas salen primero de las que no tiene ningún nivel; cuando se acaban se repiten, sin repetir la del nivel anterior.
+function pickSource(lvl) {
+  const pics = state.levelPics || (state.levelPics = {});
+  const same = pics[lvl] && gallery.sources.find((s) => s.key === pics[lvl]);
+  if (same) return same;
+  const used = new Set(Object.values(pics));
+  let pool = gallery.sources.filter((s) => !used.has(s.key));
+  if (!pool.length) pool = gallery.sources.length > 1 ? gallery.sources.filter((s) => s.key !== pics[lvl - 1]) : gallery.sources;
   const src = pool[Math.floor(Math.random() * pool.length)];
-  state.levelImage = { level: lvl, key: src.key };
+  pics[lvl] = src.key;
   save();
   return src;
 }
 
-async function showLevelImage(lvl, { manual = false, mode = 'new' } = {}) {
+async function showLevelImage(lvl, { manual = false } = {}) {
   if (!state.settings.levelImages || $('.photo-overlay')) return;
   if (lvl < 1) {
     if (manual) { sfx('tick'); flashEl($('.stat.level')); } if (manual) toast(`Tu primera imagen se desbloquea al llegar a nivel 1. Te faltan ${XP_PER_LEVEL - xpTotal()} XP.`);
@@ -937,7 +943,7 @@ async function showLevelImage(lvl, { manual = false, mode = 'new' } = {}) {
     if (manual) { sfx('error'); toast('Elige una carpeta con imágenes en Menú → Carpeta.'); }
     return;
   }
-  const src = pickSource(mode, lvl);
+  const src = pickSource(lvl);
   let url;
   try { url = URL.createObjectURL(await src.getFile()); }
   catch { gallery.status = 'missing'; gallery.sources = []; renderMenu(); toast('No encontré la carpeta de imágenes.'); return; }
@@ -1851,8 +1857,8 @@ $('#dirFallback').addEventListener('change', (e) => {
   renderMenu();
   toast(files.length ? `${files.length} imágenes listas (solo esta sesión).` : 'Esa carpeta no tiene imágenes.');
 });
-// Clic (o Enter) en el nivel: muestra una imagen al azar.
-const showCurrentLevelImage = () => showLevelImage(level(), { manual: true, mode: 'current' });
+// Clic (o Enter) en el nivel: vuelve a mostrar la imagen del nivel actual.
+const showCurrentLevelImage = () => showLevelImage(level(), { manual: true });
 document.addEventListener('click', (e) => { if (e.target.closest('.stat.level.clickable')) showCurrentLevelImage(); });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.closest?.('.stat.level.clickable')) showCurrentLevelImage();

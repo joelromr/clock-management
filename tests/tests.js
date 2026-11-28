@@ -761,6 +761,43 @@ test('XP y niveles: valores exactos con y sin ritmo', async ({ open }) => {
   eq(X.xpTotal(), 600, 'Desmarcar lo quita exacto');
 });
 
+test('Imágenes de nivel: cada nivel conserva la suya aunque bajes y vuelvas a subir', async ({ open }) => {
+  const rounds = ROUNDS();
+  rounds[0].steps[0].doneAt = T0 - H; rounds[0].steps[0].xp = 995; // nivel 1, a 5 XP del 2
+  const seed = makeState({ projects: [proj({ rounds })], selectedId: 'p1', levelImage: { level: 1, key: 'f3.png' } });
+  seed.settings.levelImages = true;
+  const app = await open({ seed });
+  const { X } = app;
+  fakeClock(app, T0);
+  eq(JSON.stringify(X.state.levelPics), '{"1":"f3.png"}', 'La imagen fijada con la versión anterior se conserva para su nivel');
+  check(!('levelImage' in X.state), 'El campo viejo se quita');
+  // La carpeta: cinco imágenes falsas; se anota cuál se abre de verdad.
+  app.w.eval(`gallery.status = 'ready'; gallery.sources = [1, 2, 3, 4, 5].map((n) => ({ key: 'f' + n + '.png', getFile: async () => { window.__shown = 'f' + n + '.png'; return new Blob(['x'], { type: 'image/png' }); } }))`);
+  const shown = async (what) => {
+    for (let i = 0; i < 60 && !app.$('.photo-overlay'); i++) await sleep(50);
+    check(!!app.$('.photo-overlay'), `Se abre la imagen (${what})`);
+    const k = app.w.__shown;
+    closeOverlays(app); app.w.__shown = null;
+    return k;
+  };
+  const p = X.selected();
+  X.toggleStep(p, 'A2');
+  eq(X.level(), 2, 'Sube a nivel 2');
+  const two = await shown('nivel 2');
+  check(two !== 'f3.png', 'Nivel 2 estrena una imagen que no tiene otro nivel');
+  eq(X.state.levelPics[2], two, 'Y queda fijada para el nivel 2');
+  X.toggleStep(p, 'A2');
+  eq(X.level(), 1, 'Desmarcar baja a nivel 1');
+  app.$('.stat.level').click();
+  eq(await shown('ver nivel 1'), 'f3.png', 'El nivel 1 muestra la suya');
+  X.toggleStep(p, 'A2');
+  eq(X.level(), 2, 'Vuelve a nivel 2');
+  eq(await shown('nivel 2 otra vez'), two, 'Al volver a nivel 2 es la misma imagen de antes');
+  app.$('.stat.level').click();
+  eq(await shown('ver nivel 2'), two, 'Y al verla otra vez, también');
+  eq(Object.keys(X.state.levelPics).length, 2, 'Nada más quedan fijadas las de los niveles 1 y 2');
+});
+
 /* =========================================================
    5. Plantillas y datos
    ========================================================= */
