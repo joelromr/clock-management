@@ -375,6 +375,25 @@ test('Riel largo con scroll: marcar pasos o cambiar de ronda no lo regresa al in
   check(there > 0, 'Para eso el riel se desplazó');
   X.toggleStep(p, 'r9s1');
   eq(path().scrollLeft, there, 'Y de ahí ya no se mueve al marcar');
+  // Con la página hasta abajo: redibujar tampoco la sube.
+  app.$('.sessions summary, [data-action="sessions"]')?.click();
+  const w = app.w, de = app.doc.documentElement;
+  check(de.scrollHeight > w.innerHeight + 100, 'La página tiene scroll vertical');
+  // Solo puede subir lo que la página de verdad se encogió.
+  const stays = (what, fn) => {
+    w.scrollTo(0, de.scrollHeight);
+    const bottom = w.scrollY;
+    check(bottom > 0, 'Estoy hasta abajo');
+    fn();
+    eq(w.scrollY, Math.min(bottom, de.scrollHeight - w.innerHeight), `${what} no sube la página`);
+    eq(path().scrollLeft, there, `${what}: el riel sigue donde estaba`);
+  };
+  stays('Marcar', () => X.toggleStep(p, 'r9s2'));
+  stays('Iniciar', () => X.toggleTimer(p));
+  stays('Descontar', () => app.$('[data-action="deduct"]').click());
+  stays('Pausar', () => X.toggleTimer(p));
+  X.renderMain();
+  check(app.$('.pace').textContent.trim().length > 0, 'El ritmo se dibuja junto con el panel (si no, la página mide menos a medio redibujo)');
 });
 
 test('Renombrar rondas y pasos en el lugar: Enter guarda, Escape deshace', async ({ open }) => {

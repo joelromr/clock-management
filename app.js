@@ -619,7 +619,7 @@ async function applyTemplate(p, tplId) {
     const ok = await ask('Cambiar plantilla',
       `Las rondas y pasos de "${p.name}" se reemplazan por los de "${tpl.name}". El avance marcado se pierde; el tiempo registrado se conserva, sin ronda asignada.`,
       'Cambiar plantilla', true);
-    if (!ok) { renderMain(); tick(); return; }
+    if (!ok) { const y = scrollY; renderMain(); tick(); settle(y); return; }
   }
   const t = now();
   const running = p.sessions.find((s) => s.end == null);
@@ -1009,7 +1009,15 @@ function resolveAway(mode) {
 }
 
 /* ---------- render ---------- */
-function renderAll() { renderStats(); renderMenu(); renderList(); renderMain(); renderDebug(); tick(); }
+// Las barras de desplazamiento se acomodan hasta el final, ya con todo dibujado: si se acomodan a medio
+// redibujo la página aún está más corta y el navegador sube la vista.
+let settleScroll = null;
+function settle(y) {
+  const f = settleScroll; settleScroll = null;
+  if (y != null && scrollY !== y) scrollTo(scrollX, y);
+  if (f) f();
+}
+function renderAll() { const y = scrollY; renderStats(); renderMenu(); renderList(); renderMain(); renderDebug(); tick(); settle(y); }
 
 /* --- footer de debug --- */
 function debugPaceText() {
@@ -1277,14 +1285,14 @@ function renderMain() {
         ${renderDeduct(p)}
       </div>
       <button class="btn btn-solid play ${hold ? `needs-hold hold-${pace(p).idx}` : ''}" data-action="toggle">${playLabel}</button>
-      <div class="pace" data-pace="${p.id}"></div>
+      <div class="pace" data-pace="${p.id}">${paceHTML(p)}</div>
       ${renderAway(p)}
     </section>
 
     ${renderPath(p)}
     ${done ? renderDoneCard(p) : renderRoundCard(p)}
     ${renderSessions(p)}`;
-  restoreScroll();
+  settleScroll = restoreScroll;
 }
 // Si la ronda actual quedó fuera del riel visible, lo desplaza lo justo para que se vea.
 function showCurrentStation(m) {
